@@ -1,0 +1,51 @@
+{
+  "name": "2context-cli",
+  "version": "0.1.0",
+  "description": "CLI tool to generate context files from git repository commits using AI",
+  "type": "module",
+  "main": "dist/main.js",
+  "bin": {
+    "2context": "dist/main.js"
+  },
+  "scripts": {
+    "build": "nest build",
+    "lint": "eslint \"src/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "start:prod": "node dist/main.js",
+    "start:dev": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@mastra/core": "^1.10.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "ink": "^4.4.1",
+    "jsonrepair": "^3.13.3",
+    "nest-commander": "^3.15.0",
+    "react": "^18.3.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@swc/cli": "^0.6.0",
+    "@swc/core": "^1.11.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.28",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
+  },
+  "private": true
+}
