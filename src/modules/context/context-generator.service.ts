@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { z } from 'zod'
 
-import type { AiService } from '@/modules/ai/ai.service.js'
+import { AiService } from '@/modules/ai/ai.service.js'
 import type {
   AnalysisResult,
   AnalysisState,
@@ -14,12 +14,12 @@ import {
   buildInsightExtractionPrompt,
   InsightExtractionSystemPrompt,
 } from '@/modules/context/prompts/analysis.system-prompt.js'
-import type { GitService } from '@/modules/git/git.service.js'
+import { GitService } from '@/modules/git/git.service.js'
 import type { CommitDiff, CommitInfo } from '@/modules/git/git.types.js'
-import type { GroupingService } from '@/modules/grouping/grouping.service.js'
-import type { StateService } from '@/modules/state/state.service.js'
-import { updateAgentFile } from '@/modules/writer/agent-file-updater.js'
-import type { WriterService } from '@/modules/writer/writer.service.js'
+import { GroupingService } from '@/modules/grouping/grouping.service.js'
+import { StateService } from '@/modules/state/state.service.js'
+import { AgentFileUpdater } from '@/modules/writer/agent-file-updater.js'
+import { WriterService } from '@/modules/writer/writer.service.js'
 
 /** Progress callback that commands can use to display status to the user. */
 export type ProgressCallback = (message: string) => void
@@ -64,11 +64,11 @@ export class ContextGeneratorService {
   private readonly logger = new Logger('ContextGeneratorService')
 
   constructor(
-    private readonly aiService: AiService,
-    private readonly gitService: GitService,
-    private readonly groupingService: GroupingService,
-    private readonly writerService: WriterService,
-    private readonly stateService: StateService,
+    @Inject(AiService) private readonly aiService: AiService,
+    @Inject(GitService) private readonly gitService: GitService,
+    @Inject(GroupingService) private readonly groupingService: GroupingService,
+    @Inject(WriterService) private readonly writerService: WriterService,
+    @Inject(StateService) private readonly stateService: StateService,
   ) {}
 
   /**
@@ -129,7 +129,8 @@ export class ContextGeneratorService {
     // 7. Update CLAUDE.md / AGENTS.md
     progress('Updating agent file...')
     const totalCommits = (existingState?.totalCommitsAnalyzed || 0) + commits.length
-    const agentFile = await updateAgentFile(repoInfo.rootDir, {
+    const agentFileUpdater = new AgentFileUpdater(repoInfo.rootDir)
+    const agentFile = await agentFileUpdater.update({
       commitCount: totalCommits,
       groupCount: (existingState?.featureGroupsProcessed || 0) + groups.length,
     })

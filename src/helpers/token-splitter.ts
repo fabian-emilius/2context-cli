@@ -1,6 +1,38 @@
 export class TokenSplitter {
+  /**
+   * Count the estimated number of tokens in the given text.
+   */
   estimateTokenCount(text: string, limit?: number): number {
     return this.walk(text, 0, text.length, limit).tokens
+  }
+
+  /**
+   * Split text into distinct chunks where each chunk fits within `maxTokens`.
+   * If the text already fits, returns a single-element array.
+   */
+  splitIntoDistinctChunks(
+    text: string,
+    maxTokens: number,
+  ): Array<{ part: string; tokens: number }> {
+    const totalTokens = this.estimateTokenCount(text)
+    if (totalTokens <= maxTokens) {
+      return [{ part: text, tokens: totalTokens }]
+    }
+
+    return this.splitByTokens(text, maxTokens)
+  }
+
+  /**
+   * Truncate text so it fits within `maxTokens`.
+   */
+  limitTokens(text: string, maxTokens: number): string {
+    const totalTokens = this.estimateTokenCount(text)
+    if (totalTokens <= maxTokens) {
+      return text
+    }
+
+    const chunks = this.splitByTokens(text, maxTokens)
+    return chunks.length > 0 ? chunks[0].part : ''
   }
 
   /**

@@ -1,4 +1,6 @@
 import { Box, Static, Text } from 'ink'
+import SelectInput from 'ink-select-input'
+import TextInput from 'ink-text-input'
 import { type ComponentType, createElement as h, type ReactNode, useEffect, useState } from 'react'
 
 /** Static component typed for OutputLine items (helps createElement infer generics). */
@@ -31,9 +33,18 @@ export interface OutputLine {
   data?: Record<string, unknown>
 }
 
+export interface InputPromptState {
+  type: 'text' | 'select' | 'secret'
+  prompt: string
+  defaultValue?: string
+  items?: { label: string; value: string }[]
+  onSubmit: (value: string) => void
+}
+
 export interface AppProps {
   lines: OutputLine[]
   spinner: { message: string } | null
+  input: InputPromptState | null
 }
 
 export interface TreeItem {
@@ -169,9 +180,53 @@ function LineRenderer({ line }: { line: OutputLine }): ReactNode {
   }
 }
 
+// ── Input prompts ─────────────────────────────────────────────────────────────
+
+function TextPrompt({ prompt, defaultValue, onSubmit }: { prompt: string; defaultValue?: string; onSubmit: (value: string) => void }): ReactNode {
+  const [value, setValue] = useState(defaultValue || '')
+
+  return h(
+    Box,
+    null,
+    h(Text, { bold: true }, `${prompt}: `),
+    h(TextInput, { value, onChange: setValue, onSubmit }),
+  )
+}
+
+function SecretPrompt({ prompt, onSubmit }: { prompt: string; onSubmit: (value: string) => void }): ReactNode {
+  const [value, setValue] = useState('')
+
+  return h(
+    Box,
+    null,
+    h(Text, { bold: true }, `${prompt}: `),
+    h(TextInput, { value, onChange: setValue, onSubmit, mask: '*' }),
+  )
+}
+
+function SelectPrompt({ prompt, items, onSubmit }: { prompt: string; items: { label: string; value: string }[]; onSubmit: (value: string) => void }): ReactNode {
+  return h(
+    Box,
+    { flexDirection: 'column' },
+    h(Text, { bold: true }, prompt),
+    h(SelectInput<string>, { items, onSelect: (item) => onSubmit(item.value) }),
+  )
+}
+
+function InputPrompt({ input }: { input: InputPromptState }): ReactNode {
+  switch (input.type) {
+    case 'text':
+      return h(TextPrompt, { prompt: input.prompt, defaultValue: input.defaultValue, onSubmit: input.onSubmit })
+    case 'secret':
+      return h(SecretPrompt, { prompt: input.prompt, onSubmit: input.onSubmit })
+    case 'select':
+      return h(SelectPrompt, { prompt: input.prompt, items: input.items || [], onSubmit: input.onSubmit })
+  }
+}
+
 // ── Root App ───────────────────────────────────────────────────────────────────
 
-export function App({ lines, spinner }: AppProps): ReactNode {
+export function App({ lines, spinner, input }: AppProps): ReactNode {
   return h(
     Box,
     { flexDirection: 'column' },
@@ -180,5 +235,6 @@ export function App({ lines, spinner }: AppProps): ReactNode {
       children: (line: OutputLine) => h(Box, { key: line.id }, h(LineRenderer, { line })),
     }),
     spinner ? h(Spinner, { message: spinner.message }) : null,
+    input ? h(InputPrompt, { input }) : null,
   )
 }

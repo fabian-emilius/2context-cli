@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { z } from 'zod'
 
-import type { AiService } from '@/modules/ai/ai.service.js'
+import { AiService } from '@/modules/ai/ai.service.js'
 import type { CommitGroup } from '@/modules/context/context.types.js'
-import type { GitService } from '@/modules/git/git.service.js'
+import { GitService } from '@/modules/git/git.service.js'
 import type { CommitInfo } from '@/modules/git/git.types.js'
 import { CommitGroupingSystemPrompt } from '@/modules/grouping/prompts/grouping.system-prompt.js'
 import { TextPrompt } from '@/prompts/text-prompt.js'
@@ -27,8 +27,8 @@ export class GroupingService {
   private readonly logger = new Logger('GroupingService')
 
   constructor(
-    private readonly aiService: AiService,
-    private readonly gitService: GitService,
+    @Inject(AiService) private readonly aiService: AiService,
+    @Inject(GitService) private readonly gitService: GitService,
   ) {}
 
   /**

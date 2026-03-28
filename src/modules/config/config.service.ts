@@ -3,30 +3,98 @@ import path from 'node:path'
 
 import { Injectable, Logger } from '@nestjs/common'
 
-import { AiProvider } from '@/constants/ai.js'
-import { AI_PROVIDER_ENV_KEYS, DEFAULT_MODELS } from '@/constants/ai.js'
-import { chmodOwnerOnly, pathExists, readFileOrNull, writeFileWithDir } from '@/helpers/fs.js'
+import { AI_PROVIDER_ENV_KEYS, AI_PROVIDER_LABELS, AI_PROVIDER_MODELS, AiProvider, DEFAULT_MODELS } from '@/constants/ai.js'
+import { FileSystem } from '@/helpers/fs.js'
 import type { TwoContextConfig } from '@/modules/config/config.types.js'
+import type { TerminalUI } from '@/ui/terminal-ui.js'
 
 @Injectable()
 export class ConfigService {
   private readonly logger = new Logger('ConfigService')
-  private readonly configDir: string
+  private readonly fs: FileSystem
   private readonly configPath: string
 
   /** In-memory cache so callers that need sync access (ensureConfigured) work after the first load. */
   private cachedConfig: TwoContextConfig | null | undefined = undefined
 
   constructor() {
-    this.configDir = path.join(os.homedir(), '.2context')
-    this.configPath = path.join(this.configDir, 'keys.json')
+    const configDir = path.join(os.homedir(), '.2context')
+    this.fs = new FileSystem(configDir)
+    this.configPath = 'keys.json'
+  }
+
+  /**
+   * Resolve configuration with the following priority:
+   *
+   *   1. Environment variables  (TWOCONTEXT_PROVIDER, ANTHROPIC_API_KEY, …)
+   *   2. Config file            (~/.2context/keys.json)
+   *   3. Interactive wizard      (only in non-CI mode)
+   *
+   * In CI mode, throws with clear instructions if env vars are missing.
+   */
+  public async resolve(ui: TerminalUI): Promise<TwoContextConfig> {
+    // 1. Environment variables take priority
+    const envConfig = this.resolveFromEnv()
+    if (envConfig) {
+      this.cacheAndInject(envConfig)
+      return envConfig
+    }
+
+    // 2. Config file
+    const existing = await this.loadConfig()
+    if (existing) {
+      await this.injectEnvKeys()
+      return existing
+    }
+
+    // 3. CI mode without configuration → fail with instructions
+    if (ui.isCI) {
+      throw new Error(
+        'Configuration required in CI mode. Set environment variables:\n' +
+          '  TWOCONTEXT_PROVIDER=anthropic|openai|google\n' +
+          '  ANTHROPIC_API_KEY=sk-...  (or OPENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY)\n' +
+          '  TWOCONTEXT_MODEL=...      (optional, defaults to provider default)',
+      )
+    }
+
+    // 4. Interactive wizard — all I/O routed through Ink
+    ui.blank()
+    ui.info('2context — First-time setup')
+    ui.blank()
+
+    const providers = Object.values(AiProvider)
+    const provider = await ui.askObject<AiProvider>('Select AI provider', providers, (p) => AI_PROVIDER_LABELS[p])
+
+    const envKey = AI_PROVIDER_ENV_KEYS[provider]
+    const apiKey = await ui.askSecret(`${envKey}`)
+
+    if (!apiKey) {
+      throw new Error('API key is required.')
+    }
+
+    const models = AI_PROVIDER_MODELS[provider]
+    const defaultModel = DEFAULT_MODELS[provider]
+    ui.dim(`Default model: ${defaultModel}`)
+
+    const model = await ui.askObject<string>('Select model', models, (m) =>
+      m === defaultModel ? `${m} (default)` : m,
+    )
+
+    const config: TwoContextConfig = { provider, model, keys: { [envKey]: apiKey } }
+
+    await this.saveConfig(config)
+    await this.injectEnvKeys()
+
+    ui.success('Configuration saved to ~/.2context/keys.json')
+
+    return config
   }
 
   /**
    * Check whether a configuration file exists.
    */
   public async isConfigured(): Promise<boolean> {
-    return pathExists(this.configPath)
+    return this.fs.pathExists(this.configPath)
   }
 
   /**
@@ -78,7 +146,7 @@ export class ConfigService {
    * Load the stored configuration, or null if none exists.
    */
   public async loadConfig(): Promise<TwoContextConfig | null> {
-    const raw = await readFileOrNull(this.configPath)
+    const raw = await this.fs.readFileOrNull(this.configPath)
     if (!raw) {
       this.cachedConfig = null
       return null
@@ -112,8 +180,8 @@ export class ConfigService {
    * Persist the given configuration to disk with restricted file permissions.
    */
   public async saveConfig(config: TwoContextConfig): Promise<void> {
-    await writeFileWithDir(this.configPath, JSON.stringify(config, null, 2))
-    await chmodOwnerOnly(this.configPath)
+    await this.fs.writeFileWithDir(this.configPath, JSON.stringify(config, null, 2))
+    await this.fs.chmodOwnerOnly(this.configPath)
 
     this.cachedConfig = config
     this.logger.log('Configuration saved')
@@ -163,9 +231,7 @@ export class ConfigService {
   /**
    * Ensure the CLI is configured, throwing if not.
    * Prefers the in-memory cache when available so this can be called
-   * after an earlier `loadConfig()` / `saveConfig()` without hitting disk again.
-   *
-   * For interactive setup use the config-wizard helper from a command instead.
+   * after an earlier `resolve()` / `loadConfig()` / `saveConfig()` without hitting disk again.
    */
   public ensureConfigured(): TwoContextConfig {
     if (this.cachedConfig) return this.cachedConfig

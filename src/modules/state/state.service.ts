@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { Injectable, Logger } from '@nestjs/common'
 
-import { ensureDir, readFileOrNull, writeFileWithDir } from '@/helpers/fs.js'
+import { FileSystem } from '@/helpers/fs.js'
 import type { AnalysisState } from '@/modules/context/context.types.js'
 
 const STATE_DIR = '.2context'
@@ -13,20 +13,20 @@ const CURRENT_VERSION = '1.0.0'
 export class StateService {
   private readonly logger = new Logger('StateService')
 
-  private repoRoot: string = process.cwd()
+  private fs: FileSystem = new FileSystem(process.cwd())
 
   /**
    * Set the repository root directory for state file resolution.
    */
   public setRepoRoot(rootDir: string): void {
-    this.repoRoot = rootDir
+    this.fs = new FileSystem(rootDir)
   }
 
   /**
    * Get the absolute path to the .2context directory.
    */
   public getStateDir(): string {
-    return path.join(this.repoRoot, STATE_DIR)
+    return path.join(this.fs.workingPath, STATE_DIR)
   }
 
   /**
@@ -42,7 +42,7 @@ export class StateService {
   public async loadState(): Promise<AnalysisState | null> {
     const statePath = path.join(this.getStateDir(), STATE_FILE)
 
-    const raw = await readFileOrNull(statePath)
+    const raw = await this.fs.readFileOrNull(statePath)
     if (!raw) return null
 
     try {
@@ -59,7 +59,7 @@ export class StateService {
   public async saveState(state: AnalysisState): Promise<void> {
     const statePath = path.join(this.getStateDir(), STATE_FILE)
 
-    await writeFileWithDir(statePath, JSON.stringify(state, null, 2))
+    await this.fs.writeFileWithDir(statePath, JSON.stringify(state, null, 2))
     this.logger.log('Analysis state saved')
   }
 
@@ -97,7 +97,7 @@ export class StateService {
     const categories = ['architecture', 'convention', 'decision', 'pattern']
 
     for (const category of categories) {
-      await ensureDir(path.join(knowledgeDir, category))
+      await this.fs.ensureDir(path.join(knowledgeDir, category))
     }
   }
 }

@@ -1,10 +1,10 @@
 import { Agent } from '@mastra/core/agent'
 import type { MastraModelConfig } from '@mastra/core/llm'
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import type { z } from 'zod'
 
 import type { GenerateTextOptions, GenerateTextResult, StreamTextOptions } from '@/modules/ai/ai.types.js'
-import type { ConfigService } from '@/modules/config/config.service.js'
+import { ConfigService } from '@/modules/config/config.service.js'
 
 const MAX_RETRIES = 3
 const INITIAL_BACKOFF_MS = 1000
@@ -13,7 +13,7 @@ const INITIAL_BACKOFF_MS = 1000
 export class AiService {
   private readonly logger = new Logger('AiService')
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {}
 
   private async createAgent(systemPrompt: string, agentId: string = 'context-agent'): Promise<Agent> {
     await this.configService.injectEnvKeys()

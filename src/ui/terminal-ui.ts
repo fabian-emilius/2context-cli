@@ -1,9 +1,8 @@
-import { Injectable } from '@nestjs/common'
 import { type Instance, render } from 'ink'
 import { createElement } from 'react'
 
-import { App, type OutputLine } from './components.js'
-import { type EnvConfig, resolveEnvConfig } from './env.js'
+import { App, type InputPromptState, type OutputLine } from './components.js'
+import { type EnvConfig, EnvResolver } from './env.js'
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -31,7 +30,7 @@ export interface TreeItem {
  * Interactive mode — uses Ink (React) for animated spinners and styled output.
  * CI mode          — uses plain `process.stdout.write` with structured prefixes.
  *
- * Inject via NestJS DI or instantiate directly:
+ * Instantiate directly in commands:
  *
  * ```ts
  * const ui = new TerminalUI()
@@ -42,7 +41,6 @@ export interface TreeItem {
  * ui.cleanup()
  * ```
  */
-@Injectable()
 export class TerminalUI {
   /** Resolved environment configuration. */
   readonly env: EnvConfig
@@ -57,12 +55,14 @@ export class TerminalUI {
 
   private lines: OutputLine[] = []
   private spinnerState: { message: string } | null = null
+  private inputState: InputPromptState | null = null
   private inkInstance: Instance | null = null
   private lineCounter = 0
   private initialized = false
 
   constructor() {
-    this.env = resolveEnvConfig()
+    const resolver = new EnvResolver()
+    this.env = resolver.resolve()
     this.isCI = this.env.ci
     this.isInteractive = !this.isCI
   }
@@ -174,7 +174,7 @@ export class TerminalUI {
   /** Resume Ink rendering after a `pause()`. */
   resume(): void {
     if (this.isInteractive && !this.inkInstance) {
-      this.inkInstance = render(createElement(App, { lines: this.lines, spinner: this.spinnerState }))
+      this.inkInstance = render(createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }))
     }
   }
 
@@ -186,6 +186,51 @@ export class TerminalUI {
       this.inkInstance.unmount()
       this.inkInstance = null
     }
+  }
+
+  // ── Input ───────────────────────────────────────────────────────────────────
+
+  /** Prompt for a string value via Ink TextInput. */
+  async askString(prompt: string, defaultValue?: string): Promise<string> {
+    if (this.isCI) {
+      return this.ciReadLine(prompt, defaultValue)
+    }
+
+    return this.showInput({ type: 'text', prompt, defaultValue, onSubmit: () => {} })
+  }
+
+  /** Prompt the user to select from a list of options via Ink SelectInput. */
+  async askObject<T>(prompt: string, availableOptions: T[], formatter: (x: T) => string = (x) => String(x)): Promise<T> {
+    if (this.isCI) {
+      this.ciWrite(`\n${prompt}`)
+      availableOptions.forEach((opt, i) => this.ciWrite(`  ${i}: ${formatter(opt)}`))
+      while (true) {
+        const answer = await this.ciReadLine('Selection')
+        const idx = parseInt(answer, 10)
+        if (idx >= 0 && idx < availableOptions.length) return availableOptions[idx]
+        this.ciWrite('Please enter a valid number')
+      }
+    }
+
+    const items = availableOptions.map((opt, i) => ({ label: formatter(opt), value: String(i) }))
+    const selected = await this.showInput({ type: 'select', prompt, items, onSubmit: () => {} })
+    return availableOptions[parseInt(selected, 10)]
+  }
+
+  /** Prompt for a boolean (y/n). */
+  async askBoolean(prompt: string): Promise<boolean> {
+    const answer = await this.askString(`${prompt} (y/n)`)
+    const lower = answer.toLowerCase()
+    return lower === 'yes' || lower === 'y' || lower === 'true' || lower === '1'
+  }
+
+  /** Prompt for a secret value (masked input) via Ink TextInput with mask. */
+  async askSecret(prompt: string): Promise<string> {
+    if (this.isCI) {
+      return this.ciReadLine(prompt)
+    }
+
+    return this.showInput({ type: 'secret', prompt, onSubmit: () => {} })
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
@@ -207,14 +252,46 @@ export class TerminalUI {
   private ensureInk(): void {
     if (!this.initialized && this.isInteractive) {
       this.initialized = true
-      this.inkInstance = render(createElement(App, { lines: this.lines, spinner: this.spinnerState }))
+      this.inkInstance = render(createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }))
     }
   }
 
   private rerender(): void {
     if (this.inkInstance) {
-      this.inkInstance.rerender(createElement(App, { lines: this.lines, spinner: this.spinnerState }))
+      this.inkInstance.rerender(createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }))
     }
+  }
+
+  /** Render an Ink input component and wait for the user to submit. */
+  private showInput(state: Omit<InputPromptState, 'onSubmit'> & { onSubmit?: () => void }): Promise<string> {
+    this.ensureInk()
+    this.spinnerState = null
+
+    return new Promise<string>((resolve) => {
+      this.inputState = {
+        ...state,
+        onSubmit: (value: string) => {
+          this.inputState = null
+          this.rerender()
+          resolve(value)
+        },
+      }
+      this.rerender()
+    })
+  }
+
+  /** CI fallback: read a line from stdin using readline. */
+  private async ciReadLine(prompt: string, defaultValue?: string): Promise<string> {
+    const readline = await import('node:readline')
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    const suffix = defaultValue ? ` (${defaultValue})` : ''
+
+    return new Promise((resolve) => {
+      rl.question(`${prompt}${suffix}: `, (answer) => {
+        rl.close()
+        resolve(answer || defaultValue || '')
+      })
+    })
   }
 
   // ── CI rendering ───────────────────────────────────────────────────────────

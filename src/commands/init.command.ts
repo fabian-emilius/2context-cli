@@ -3,7 +3,6 @@ import { Command, Option } from 'nest-commander'
 
 import { AI_PROVIDER_LABELS } from '@/constants/ai.js'
 import { BaseCommand } from '@/helpers/base-command.js'
-import { ensureConfiguredInteractive } from '@/helpers/config-wizard.js'
 import { ConfigService } from '@/modules/config/config.service.js'
 import { ContextGeneratorService } from '@/modules/context/context-generator.service.js'
 import { TerminalUI } from '@/ui/terminal-ui.js'
@@ -19,10 +18,11 @@ interface InitOptions {
   description: 'Analyze repository commits and generate knowledge context files',
 })
 export class InitCommand extends BaseCommand {
+  private readonly ui = new TerminalUI()
+
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(ContextGeneratorService) private readonly contextGenerator: ContextGeneratorService,
-    @Inject(TerminalUI) private readonly ui: TerminalUI,
   ) {
     super()
   }
@@ -31,7 +31,7 @@ export class InitCommand extends BaseCommand {
     this.ui.header('2context', 'Knowledge Extraction CLI')
 
     // Resolve config: env vars → file → interactive wizard
-    const config = await ensureConfiguredInteractive(this.configService, this.ui)
+    const config = await this.configService.resolve(this.ui)
 
     this.ui.keyValue([
       ['Provider', AI_PROVIDER_LABELS[config.provider]],

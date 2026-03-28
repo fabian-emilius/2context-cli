@@ -37,22 +37,27 @@ export interface EnvConfig {
   force: boolean
 }
 
-export function resolveEnvConfig(): EnvConfig {
-  const ci = isTruthy(process.env.CI) || isTruthy(process.env.TWOCONTEXT_CI) || !process.stdout.isTTY
-
-  return {
-    ci,
-    silent: isTruthy(process.env.TWOCONTEXT_SILENT),
-    noColor: ci || isTruthy(process.env.NO_COLOR) || isTruthy(process.env.TWOCONTEXT_NO_COLOR),
-    provider: process.env.TWOCONTEXT_PROVIDER,
-    model: process.env.TWOCONTEXT_MODEL,
-    branch: process.env.TWOCONTEXT_BRANCH,
-    verbose: isTruthy(process.env.TWOCONTEXT_VERBOSE),
-    force: isTruthy(process.env.TWOCONTEXT_FORCE),
+export class EnvResolver {
+  private static isTruthy(value: string | undefined): boolean {
+    if (!value) return false
+    return value === '1' || value.toLowerCase() === 'true' || value.toLowerCase() === 'yes'
   }
-}
 
-function isTruthy(value: string | undefined): boolean {
-  if (!value) return false
-  return value === '1' || value.toLowerCase() === 'true' || value.toLowerCase() === 'yes'
+  resolve(): EnvConfig {
+    const ci =
+      EnvResolver.isTruthy(process.env.CI) ||
+      EnvResolver.isTruthy(process.env.TWOCONTEXT_CI) ||
+      !process.stdout.isTTY
+
+    return {
+      ci,
+      silent: EnvResolver.isTruthy(process.env.TWOCONTEXT_SILENT),
+      noColor: ci || EnvResolver.isTruthy(process.env.NO_COLOR) || EnvResolver.isTruthy(process.env.TWOCONTEXT_NO_COLOR),
+      provider: process.env.TWOCONTEXT_PROVIDER,
+      model: process.env.TWOCONTEXT_MODEL,
+      branch: process.env.TWOCONTEXT_BRANCH,
+      verbose: EnvResolver.isTruthy(process.env.TWOCONTEXT_VERBOSE),
+      force: EnvResolver.isTruthy(process.env.TWOCONTEXT_FORCE),
+    }
+  }
 }

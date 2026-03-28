@@ -12,10 +12,11 @@ import { TerminalUI } from '@/ui/terminal-ui.js'
   description: 'Show current 2context configuration and analysis status',
 })
 export class StatusCommand extends BaseCommand {
+  private readonly ui = new TerminalUI()
+
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(StateService) private readonly stateService: StateService,
-    @Inject(TerminalUI) private readonly ui: TerminalUI,
   ) {
     super()
   }

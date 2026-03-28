@@ -8,10 +8,9 @@ import { ConfigModule } from '@/modules/config/config.module.js'
 import { ContextModule } from '@/modules/context/context.module.js'
 import { GitModule } from '@/modules/git/git.module.js'
 import { StateModule } from '@/modules/state/state.module.js'
-import { UIModule } from '@/ui/ui.module.js'
 
 @Module({
-  imports: [CommandRunnerModule, UIModule, ConfigModule, GitModule, AiModule, StateModule, ContextModule],
+  imports: [CommandRunnerModule, ConfigModule, GitModule, AiModule, StateModule, ContextModule],
   providers: [InitCommand, StatusCommand],
 })
 export class AppModule {}

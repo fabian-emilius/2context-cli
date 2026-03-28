@@ -1,6 +1,4 @@
-import path from 'node:path'
-
-import { pathExists, readFileOrNull, writeFileWithDir } from '@/helpers/fs.js'
+import { FileSystem } from '@/helpers/fs.js'
 
 const SECTION_MARKER = '## Knowledge Context'
 
@@ -23,61 +21,66 @@ This project uses 2context for AI-assisted knowledge extraction from commit hist
 /**
  * Updates CLAUDE.md or AGENTS.md with a Knowledge Context reference section.
  */
-export async function updateAgentFile(
-  repoRoot: string,
-  stats: { commitCount: number; groupCount: number },
-): Promise<string> {
-  const date = new Date().toISOString().split('T')[0]
-  const sectionContent = SECTION_TEMPLATE(date, stats.commitCount, stats.groupCount)
+export class AgentFileUpdater {
+  private readonly fs: FileSystem
 
-  // Check for existing agent files
-  const claudeFile = path.join(repoRoot, 'CLAUDE.md')
-  const agentsFile = path.join(repoRoot, 'AGENTS.md')
-
-  let targetFile: string
-
-  if (await pathExists(claudeFile)) {
-    targetFile = claudeFile
-  } else if (await pathExists(agentsFile)) {
-    targetFile = agentsFile
-  } else {
-    // Create CLAUDE.md
-    targetFile = claudeFile
+  constructor(repoRoot: string) {
+    this.fs = new FileSystem(repoRoot)
   }
 
-  let content = (await readFileOrNull(targetFile)) || ''
+  async update(stats: { commitCount: number; groupCount: number }): Promise<string> {
+    const date = new Date().toISOString().split('T')[0]
+    const sectionContent = SECTION_TEMPLATE(date, stats.commitCount, stats.groupCount)
 
-  if (content.includes(SECTION_MARKER)) {
-    content = replaceSection(content, sectionContent)
-  } else {
-    if (content && !content.endsWith('\n')) {
-      content += '\n'
+    // Check for existing agent files
+    const claudeFile = 'CLAUDE.md'
+    const agentsFile = 'AGENTS.md'
+
+    let targetFile: string
+
+    if (await this.fs.pathExists(claudeFile)) {
+      targetFile = claudeFile
+    } else if (await this.fs.pathExists(agentsFile)) {
+      targetFile = agentsFile
+    } else {
+      // Create CLAUDE.md
+      targetFile = claudeFile
     }
-    content += '\n' + sectionContent
+
+    let content = (await this.fs.readFileOrNull(targetFile)) || ''
+
+    if (content.includes(SECTION_MARKER)) {
+      content = this.replaceSection(content, sectionContent)
+    } else {
+      if (content && !content.endsWith('\n')) {
+        content += '\n'
+      }
+      content += '\n' + sectionContent
+    }
+
+    await this.fs.writeFileWithDir(targetFile, content)
+
+    return targetFile
   }
 
-  await writeFileWithDir(targetFile, content)
+  private replaceSection(content: string, newSection: string): string {
+    const markerIndex = content.indexOf(SECTION_MARKER)
 
-  return path.relative(repoRoot, targetFile)
-}
+    if (markerIndex === -1) return content + '\n' + newSection
 
-function replaceSection(content: string, newSection: string): string {
-  const markerIndex = content.indexOf(SECTION_MARKER)
+    // Find the end of the section (next ## heading or end of file)
+    const afterMarker = content.indexOf('\n', markerIndex)
+    let endIndex = content.length
 
-  if (markerIndex === -1) return content + '\n' + newSection
+    // Look for next section heading
+    const nextHeading = content.indexOf('\n## ', afterMarker + 1)
+    if (nextHeading !== -1) {
+      endIndex = nextHeading
+    }
 
-  // Find the end of the section (next ## heading or end of file)
-  const afterMarker = content.indexOf('\n', markerIndex)
-  let endIndex = content.length
+    const before = content.substring(0, markerIndex).trimEnd()
+    const after = content.substring(endIndex)
 
-  // Look for next section heading
-  const nextHeading = content.indexOf('\n## ', afterMarker + 1)
-  if (nextHeading !== -1) {
-    endIndex = nextHeading
+    return before + '\n\n' + newSection + after
   }
-
-  const before = content.substring(0, markerIndex).trimEnd()
-  const after = content.substring(endIndex)
-
-  return before + '\n\n' + newSection + after
 }

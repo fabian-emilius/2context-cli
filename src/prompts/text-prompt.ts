@@ -1,6 +1,6 @@
 import type { LLMMessage } from '@/constants/llm.js'
-import { buildUserLLMMessage } from '@/helpers/messages.js'
-import { countTextTokens, limitTextTokens } from '@/helpers/tokens.js'
+import { MessageBuilder } from '@/helpers/messages.js'
+import { TokenSplitter } from '@/helpers/token-splitter.js'
 
 export class TextPrompt {
   public static create(maxElementTokens?: number): TextPrompt {
@@ -8,6 +8,8 @@ export class TextPrompt {
   }
 
   private items: string[] = []
+  private readonly splitter = new TokenSplitter()
+  private readonly messageBuilder = new MessageBuilder()
 
   constructor(private readonly maxElementTokens?: number) {
     if (maxElementTokens && maxElementTokens <= 0) {
@@ -25,7 +27,7 @@ export class TextPrompt {
     }
 
     if (this.maxElementTokens) {
-      this.items.push(limitTextTokens(text, this.maxElementTokens))
+      this.items.push(this.splitter.limitTokens(text, this.maxElementTokens))
     } else {
       this.items.push(text)
     }
@@ -45,7 +47,7 @@ export class TextPrompt {
     if (this.maxElementTokens) {
       const limit = this.maxElementTokens
 
-      this.items.push(items.map((item) => `- ${limitTextTokens(item, limit)}`).join('\n'))
+      this.items.push(items.map((item) => `- ${this.splitter.limitTokens(item, limit)}`).join('\n'))
     } else {
       this.items.push(items.map((item) => `- ${item}`).join('\n'))
     }
@@ -84,7 +86,7 @@ export class TextPrompt {
     }
 
     if (this.maxElementTokens) {
-      this.items.push(wrapContent(limitTextTokens(content || '', this.maxElementTokens)))
+      this.items.push(wrapContent(this.splitter.limitTokens(content || '', this.maxElementTokens)))
     } else {
       this.items.push(wrapContent(content || ''))
     }
@@ -103,7 +105,7 @@ export class TextPrompt {
 
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i]
-      const itemTokens = countTextTokens(item)
+      const itemTokens = this.splitter.estimateTokenCount(item)
 
       if (maxTokens && outputTokens + itemTokens > maxTokens) {
         return this.items.slice(0, i).join('\n')
@@ -116,6 +118,6 @@ export class TextPrompt {
   }
 
   public buildLLMMessage(): LLMMessage {
-    return buildUserLLMMessage(this.build())
+    return this.messageBuilder.buildUserMessage(this.build())
   }
 }
