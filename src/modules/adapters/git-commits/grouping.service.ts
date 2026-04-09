@@ -1,11 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { z } from 'zod'
 
-import { AiService } from '@/modules/ai/ai.service.js'
-import type { CommitGroup } from '@/modules/context/context.types.js'
-import { GitService } from '@/modules/git/git.service.js'
+import type { FeatureGroup } from '@/modules/adapters/git-commits/git-commits.types.js'
+import { CommitGroupingSystemPrompt } from '@/modules/adapters/git-commits/prompts/grouping.system-prompt.js'
+import type { AiService } from '@/modules/ai/ai.service.js'
+import type { GitService } from '@/modules/git/git.service.js'
 import type { CommitInfo } from '@/modules/git/git.types.js'
-import { CommitGroupingSystemPrompt } from '@/modules/grouping/prompts/grouping.system-prompt.js'
 import { TextPrompt } from '@/prompts/text-prompt.js'
 
 /** Max commits per AI grouping call. */
@@ -23,32 +23,27 @@ const CommitGroupSchema = z.object({
 })
 
 @Injectable()
-export class GroupingService {
-  private readonly logger = new Logger('GroupingService')
-
-  constructor(
-    @Inject(AiService) private readonly aiService: AiService,
-    @Inject(GitService) private readonly gitService: GitService,
-  ) {}
+export class GitCommitsGroupingService {
+  private readonly logger = new Logger('GitCommitsGroupingService')
 
   /**
    * Group commits into logical feature groups using AI.
-   * For large sets, batches commits and processes each batch independently.
+   * Batches large sets and processes each batch independently.
    */
-  public async groupCommits(commits: CommitInfo[]): Promise<CommitGroup[]> {
+  public async groupCommits(ai: AiService, git: GitService, commits: CommitInfo[]): Promise<FeatureGroup[]> {
     if (commits.length === 0) return []
 
     if (commits.length <= BATCH_SIZE) {
-      return this.groupBatch(commits)
+      return this.groupBatch(ai, git, commits)
     }
 
-    const allGroups: CommitGroup[] = []
+    const allGroups: FeatureGroup[] = []
     const batches = this.createBatches(commits, BATCH_SIZE)
 
     this.logger.log(`Processing ${batches.length} batches of commits`)
 
     for (const batch of batches) {
-      const batchGroups = await this.groupBatch(batch)
+      const batchGroups = await this.groupBatch(ai, git, batch)
       allGroups.push(...batchGroups)
     }
 
@@ -57,14 +52,14 @@ export class GroupingService {
 
   // ── Private helpers ────────────────────────────────────────────────────────
 
-  private async groupBatch(commits: CommitInfo[]): Promise<CommitGroup[]> {
-    const fileLists = await this.gitService.getCommitFileLists(commits.map((c) => c.hash))
+  private async groupBatch(ai: AiService, git: GitService, commits: CommitInfo[]): Promise<FeatureGroup[]> {
+    const fileLists = await git.getCommitFileLists(commits.map((c) => c.hash))
 
     const prompt = this.buildGroupingPrompt(commits, fileLists)
     const systemPrompt = new CommitGroupingSystemPrompt()
 
     try {
-      const response = await this.aiService.generateStructured<z.infer<typeof CommitGroupSchema>>(
+      const response = await ai.generateStructured<z.infer<typeof CommitGroupSchema>>(
         prompt,
         systemPrompt.build().prompt,
         CommitGroupSchema,
@@ -108,14 +103,14 @@ export class GroupingService {
    * Resolve AI-returned group data back to actual CommitInfo objects.
    * Each commit is assigned to at most one group.
    */
-  private resolveGroups(rawGroups: z.infer<typeof CommitGroupSchema>['groups'], commits: CommitInfo[]): CommitGroup[] {
+  private resolveGroups(rawGroups: z.infer<typeof CommitGroupSchema>['groups'], commits: CommitInfo[]): FeatureGroup[] {
     const commitMap = new Map<string, CommitInfo>()
     for (const commit of commits) {
       commitMap.set(commit.shortHash, commit)
       commitMap.set(commit.hash, commit)
     }
 
-    const groups: CommitGroup[] = []
+    const groups: FeatureGroup[] = []
     const assignedHashes = new Set<string>()
 
     for (const raw of rawGroups) {

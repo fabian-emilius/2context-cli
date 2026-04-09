@@ -3,11 +3,13 @@ import path from 'node:path'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { FileSystem } from '@/helpers/fs.js'
-import type { AnalysisState } from '@/modules/context/context.types.js'
+import type { GlobalState } from '@/modules/state/state.types.js'
+import { CURRENT_STATE_VERSION, DEFAULT_REBALANCE_CONFIG } from '@/modules/state/state.types.js'
 
 const STATE_DIR = '.2context'
 const STATE_FILE = 'state.json'
-const CURRENT_VERSION = '1.0.0'
+const SOURCES_SUBDIR = 'sources'
+const GRAPH_SUBDIR = 'graph'
 
 @Injectable()
 export class StateService {
@@ -22,31 +24,49 @@ export class StateService {
     this.fs = new FileSystem(rootDir)
   }
 
-  /**
-   * Get the absolute path to the .2context directory.
-   */
+  /** Absolute path to `.2context/`. */
   public getStateDir(): string {
     return path.join(this.fs.workingPath, STATE_DIR)
   }
 
-  /**
-   * Get the absolute path to the knowledge output directory.
-   */
-  public getKnowledgeDir(): string {
-    return path.join(this.getStateDir(), 'knowledge')
+  /** Absolute path to `.2context/graph/`. */
+  public getGraphDir(): string {
+    return path.join(this.getStateDir(), GRAPH_SUBDIR)
+  }
+
+  /** Absolute path to `.2context/sources/`. */
+  public getSourcesDir(): string {
+    return path.join(this.getStateDir(), SOURCES_SUBDIR)
+  }
+
+  /** Absolute path to `.2context/sources/{adapterId}/`. */
+  public getAdapterStateDir(adapterId: string): string {
+    return path.join(this.getSourcesDir(), adapterId)
+  }
+
+  /** Absolute path to the root KNOWLEDGE_GRAPH.md. */
+  public getGraphIndexPath(): string {
+    return path.join(this.getStateDir(), 'KNOWLEDGE_GRAPH.md')
   }
 
   /**
-   * Load the persisted analysis state, or null if none exists.
+   * Load the persisted global state, or null if none exists.
    */
-  public async loadState(): Promise<AnalysisState | null> {
+  public async loadState(): Promise<GlobalState | null> {
     const statePath = path.join(this.getStateDir(), STATE_FILE)
 
     const raw = await this.fs.readFileOrNull(statePath)
     if (!raw) return null
 
     try {
-      return JSON.parse(raw) as AnalysisState
+      const parsed = JSON.parse(raw) as GlobalState
+      // Forward-migrate missing config with defaults in case the user edited the file.
+      parsed.config = { ...DEFAULT_REBALANCE_CONFIG, ...(parsed.config || {}) }
+      if (!parsed.counters) {
+        parsed.counters = { totalMaterialProcessed: 0, totalGroupsProcessed: 0, rebalanceCount: 0 }
+      }
+      if (!parsed.items) parsed.items = []
+      return parsed
     } catch (error) {
       this.logger.warn(`Failed to parse state file: ${error}`)
       return null
@@ -54,50 +74,52 @@ export class StateService {
   }
 
   /**
-   * Persist the given analysis state to disk.
+   * Persist the given global state to disk, stamping the run date.
    */
-  public async saveState(state: AnalysisState): Promise<void> {
-    const statePath = path.join(this.getStateDir(), STATE_FILE)
-
-    await this.fs.writeFileWithDir(statePath, JSON.stringify(state, null, 2))
-    this.logger.log('Analysis state saved')
-  }
-
-  /**
-   * Create a blank initial state for the first run.
-   */
-  public createInitialState(): AnalysisState {
-    return {
-      version: CURRENT_VERSION,
-      lastAnalyzedCommit: '',
-      lastRunDate: '',
-      totalCommitsAnalyzed: 0,
-      featureGroupsProcessed: 0,
-      knowledgeFiles: [],
-    }
-  }
-
-  /**
-   * Merge partial updates into an existing state object and stamp the current date.
-   */
-  public updateState(existing: AnalysisState, update: Partial<Omit<AnalysisState, 'version'>>): AnalysisState {
-    return {
-      ...existing,
-      ...update,
-      version: CURRENT_VERSION,
+  public async saveState(state: GlobalState): Promise<void> {
+    const stamped: GlobalState = {
+      ...state,
+      version: CURRENT_STATE_VERSION,
       lastRunDate: new Date().toISOString(),
     }
+
+    const statePath = path.join(this.getStateDir(), STATE_FILE)
+    await this.fs.writeFileWithDir(statePath, JSON.stringify(stamped, null, 2))
+    this.logger.log('Global state saved')
   }
 
   /**
-   * Ensure the knowledge category directories exist under .2context/knowledge/.
+   * Create a blank initial state for a first run.
    */
-  public async ensureKnowledgeDirs(): Promise<void> {
-    const knowledgeDir = this.getKnowledgeDir()
-    const categories = ['architecture', 'convention', 'decision', 'pattern']
-
-    for (const category of categories) {
-      await this.fs.ensureDir(path.join(knowledgeDir, category))
+  public createInitialState(): GlobalState {
+    const now = new Date().toISOString()
+    return {
+      version: CURRENT_STATE_VERSION,
+      createdAt: now,
+      lastRunDate: now,
+      projectSummary: '',
+      config: { ...DEFAULT_REBALANCE_CONFIG },
+      items: [],
+      counters: { totalMaterialProcessed: 0, totalGroupsProcessed: 0, rebalanceCount: 0 },
     }
+  }
+
+  /**
+   * Ensure `.2context/`, `sources/`, and `graph/{category}/` exist.
+   */
+  public async scaffoldDirs(): Promise<void> {
+    await this.fs.ensureDir(this.getStateDir())
+    await this.fs.ensureDir(this.getSourcesDir())
+    await this.fs.ensureDir(this.getGraphDir())
+    const categories = ['architecture', 'convention', 'decision', 'pattern']
+    for (const category of categories) {
+      await this.fs.ensureDir(path.join(this.getGraphDir(), category))
+    }
+  }
+
+  /** True if `.2context/state.json` already exists. */
+  public async isInitialized(): Promise<boolean> {
+    const statePath = path.join(this.getStateDir(), STATE_FILE)
+    return this.fs.pathExists(statePath)
   }
 }

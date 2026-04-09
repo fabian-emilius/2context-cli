@@ -1,22 +1,24 @@
 import { Inject } from '@nestjs/common'
 import { Command, Option } from 'nest-commander'
 
-import { AI_PROVIDER_LABELS } from '@/constants/ai.js'
 import { BaseCommand } from '@/helpers/base-command.js'
 import { ConfigService } from '@/modules/config/config.service.js'
 import { PipelineService } from '@/modules/pipeline/pipeline.service.js'
 import { TerminalUI } from '@/ui/terminal-ui.js'
 
-interface InitOptions {
+interface IngestOptions {
   branch?: string
   verbose?: boolean
+  force?: boolean
+  source?: string
+  noRebalance?: boolean
 }
 
 @Command({
-  name: 'init',
-  description: 'Scaffold .2context/, configure the AI provider, and run the first ingest',
+  name: 'ingest',
+  description: 'Run the ingestion pipeline across all configured sources',
 })
-export class InitCommand extends BaseCommand {
+export class IngestCommand extends BaseCommand {
   private readonly ui = new TerminalUI()
 
   constructor(
@@ -26,42 +28,33 @@ export class InitCommand extends BaseCommand {
     super()
   }
 
-  protected async execute(_passedParam: string[], options?: InitOptions): Promise<void> {
-    this.ui.header('2context', 'Knowledge Graph CLI')
+  protected async execute(_passedParam: string[], options?: IngestOptions): Promise<void> {
+    this.ui.header('2context', 'Ingest')
+    await this.configService.resolve(this.ui)
 
-    // Resolve config: env vars → file → interactive wizard
-    const config = await this.configService.resolve(this.ui)
+    if (options?.force) {
+      const confirmed = await this.confirmForce()
+      if (!confirmed) {
+        this.ui.warning('Aborted.')
+        this.ui.cleanup()
+        return
+      }
+    }
 
-    this.ui.keyValue([
-      ['Provider', AI_PROVIDER_LABELS[config.provider]],
-      ['Model', config.model],
-    ])
-    this.ui.blank()
-
-    // Scaffold .2context/ (writes empty state if needed)
-    await this.pipeline.initializeWorkspace(this.ui)
-    this.ui.success('Workspace scaffolded: .2context/')
-    this.ui.blank()
-
-    // First ingest
-    const spinner = this.ui.spinner('Running first ingest...')
+    const spinner = this.ui.spinner('Ingesting...')
     const result = await this.pipeline.ingest(
       this.ui,
       {
         branch: options?.branch || this.ui.env.branch,
         verbose: options?.verbose || this.ui.env.verbose,
+        force: options?.force,
+        source: options?.source,
+        noRebalance: options?.noRebalance,
       },
       (msg) => spinner.update(msg),
     )
     spinner.succeed('Ingest complete')
 
-    this.printResult(result)
-
-    this.ui.blank()
-    this.ui.cleanup()
-  }
-
-  private printResult(result: Awaited<ReturnType<PipelineService['ingest']>>): void {
     this.ui.divider('Results')
     this.ui.keyValue([
       ['Items produced', String(result.totalItemsProduced)],
@@ -72,6 +65,7 @@ export class InitCommand extends BaseCommand {
           ? `${result.rebalance.moves} moves (${result.rebalance.splits} split, ${result.rebalance.merges} merge)`
           : 'no changes',
       ],
+      ['Mode', result.isIncremental ? 'incremental' : 'full'],
     ])
 
     for (const summary of result.adapters) {
@@ -79,6 +73,18 @@ export class InitCommand extends BaseCommand {
         `[${summary.adapterId}] ${summary.itemsProduced} items · ${summary.materialProcessed} items processed · ${summary.groupsProcessed} groups`,
       )
     }
+
+    this.ui.blank()
+    this.ui.cleanup()
+  }
+
+  private async confirmForce(): Promise<boolean> {
+    if (this.ui.isCI) {
+      this.ui.warning('--force: wiping existing items (auto-confirmed in CI mode)')
+      return true
+    }
+    this.ui.warning('This will wipe all extracted items and reset source cursors. Continue?')
+    return this.ui.askBoolean('Proceed with --force')
   }
 
   @Option({
@@ -94,6 +100,30 @@ export class InitCommand extends BaseCommand {
     description: 'Verbose logging',
   })
   parseVerbose(): boolean {
+    return true
+  }
+
+  @Option({
+    flags: '-f, --force',
+    description: 'Wipe existing items and reprocess everything from scratch',
+  })
+  parseForce(): boolean {
+    return true
+  }
+
+  @Option({
+    flags: '-s, --source <id>',
+    description: 'Only run the adapter with this id (e.g. git-commits)',
+  })
+  parseSource(val: string): string {
+    return val
+  }
+
+  @Option({
+    flags: '--no-rebalance',
+    description: 'Skip the post-ingest rebalance step',
+  })
+  parseNoRebalance(): boolean {
     return true
   }
 }

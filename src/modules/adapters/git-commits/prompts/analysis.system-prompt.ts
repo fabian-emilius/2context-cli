@@ -1,5 +1,5 @@
-import type { CommitGroup } from '@/modules/context/context.types.js'
-import { KNOWLEDGE_CATEGORY_DESCRIPTIONS } from '@/modules/context/context.types.js'
+import { KNOWLEDGE_CATEGORY_DESCRIPTIONS } from '@/modules/adapters/adapter.types.js'
+import type { FeatureGroup } from '@/modules/adapters/git-commits/git-commits.types.js'
 import type { CommitDiff } from '@/modules/git/git.types.js'
 import { SystemPrompt } from '@/prompts/system-prompt.js'
 import { TextPrompt } from '@/prompts/text-prompt.js'
@@ -51,12 +51,20 @@ export class InsightExtractionSystemPrompt extends SystemPrompt {
           name: 'knowledge_categories',
           content: 'Classify each insight into one of these categories:\n' + categoryList,
         },
+        {
+          name: 'summary_requirement',
+          content:
+            'For each insight, also provide a SUMMARY: a single, self-contained sentence (≤ 25 words) that ' +
+            'conveys the gist of the insight without needing the body. This summary will appear in the project index ' +
+            '(KNOWLEDGE_GRAPH.md), so an agent must be able to decide relevance from the summary alone.',
+        },
       ],
       [
         'Never summarize code changes — only extract decisions and patterns.',
         'Producing zero outputs is the correct result for many commit groups.',
         'Write each insight as a reusable guideline: "When doing X, use Y approach because Z".',
         'Include concrete file paths as examples to ground each insight.',
+        'Every insight must include a one-sentence summary suitable for an index.',
       ],
     )
 
@@ -64,7 +72,7 @@ export class InsightExtractionSystemPrompt extends SystemPrompt {
   }
 }
 
-export function buildInsightExtractionPrompt(group: CommitGroup, diffs: CommitDiff[]): string {
+export function buildInsightExtractionPrompt(group: FeatureGroup, diffs: CommitDiff[]): string {
   const prompt = TextPrompt.create()
 
   prompt.text('=== TASK ===')
@@ -77,21 +85,18 @@ export function buildInsightExtractionPrompt(group: CommitGroup, diffs: CommitDi
   prompt.section('group', group.description, { name: group.name })
   prompt.emptyLine()
 
-  // Commit messages
   prompt.text('=== COMMITS ===')
   for (const commit of group.commits) {
     prompt.text(`[${commit.shortHash}] ${commit.date} by ${commit.author}: ${commit.message}`)
   }
   prompt.emptyLine()
 
-  // Primary files
   if (group.primaryFiles.length > 0) {
     prompt.text('=== PRIMARY FILES ===')
     prompt.list(group.primaryFiles)
     prompt.emptyLine()
   }
 
-  // Diffs
   if (diffs.length > 0) {
     prompt.text('=== FILE CHANGES ===')
     const diffPrompt = TextPrompt.create()
@@ -113,7 +118,8 @@ export function buildInsightExtractionPrompt(group: CommitGroup, diffs: CommitDi
   prompt.emptyLine()
   prompt.text(
     'IMPORTANT: It is expected to produce zero insights for routine changes. ' +
-      'Only output insights for genuine architectural decisions and patterns.',
+      'Only output insights for genuine architectural decisions and patterns. ' +
+      'Every insight you DO emit must include a single-sentence summary suitable for an index.',
   )
 
   return prompt.build()

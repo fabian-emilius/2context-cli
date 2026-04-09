@@ -2,20 +2,17 @@ import { FileSystem } from '@/helpers/fs.js'
 
 const SECTION_MARKER = '## Knowledge Context'
 
-const SECTION_TEMPLATE = (date: string, commitCount: number, groupCount: number) => `## Knowledge Context
+const SECTION_TEMPLATE = (date: string, totalItems: number, coLocatedFiles: number) => `## Knowledge Context
 
-This project uses 2context for AI-assisted knowledge extraction from commit history.
+**Before starting any task, read \`.2context/KNOWLEDGE_GRAPH.md\` first.**
 
-**Before making changes, check these knowledge sources:**
+That file is the index of everything this project has learned:
+- Co-located \`KNOWLEDGE.md\` files next to the code they describe (architectural decisions, pitfalls, conventions scoped to a directory)
+- A central knowledge graph under \`.2context/graph/\` organized by category: architecture, convention, decision, pattern
 
-- **Directory-level knowledge:** Look for \`KNOWLEDGE.md\` files in the directory you're working with. These contain file/folder-specific patterns, conventions, and decisions.
-- **General codebase knowledge:** Check \`.2context/knowledge/\` for broader architectural and convention documentation:
-  - \`architecture/\` — System design patterns and structural decisions
-  - \`convention/\` — Coding standards, naming rules, file organization
-  - \`decision/\` — Technical decisions with rationale
-  - \`pattern/\` — Recurring implementation patterns
+Always check whether relevant knowledge already exists before making architectural decisions or implementing patterns. If you discover something that should be documented, mention it in your response so it can be captured by running \`2context ingest\`.
 
-> Last analyzed: ${date} | Commits: ${commitCount} | Feature groups: ${groupCount}
+_Managed by 2context. Last updated: ${date} · ${totalItems} items, ${coLocatedFiles} co-located files._
 `
 
 /**
@@ -28,22 +25,19 @@ export class AgentFileUpdater {
     this.fs = new FileSystem(repoRoot)
   }
 
-  async update(stats: { commitCount: number; groupCount: number }): Promise<string> {
-    const date = new Date().toISOString().split('T')[0]
-    const sectionContent = SECTION_TEMPLATE(date, stats.commitCount, stats.groupCount)
+  async update(stats: { totalItems: number; coLocatedFiles: number }): Promise<string> {
+    const date = new Date().toISOString()
+    const sectionContent = SECTION_TEMPLATE(date, stats.totalItems, stats.coLocatedFiles)
 
-    // Check for existing agent files
     const claudeFile = 'CLAUDE.md'
     const agentsFile = 'AGENTS.md'
 
     let targetFile: string
-
     if (await this.fs.pathExists(claudeFile)) {
       targetFile = claudeFile
     } else if (await this.fs.pathExists(agentsFile)) {
       targetFile = agentsFile
     } else {
-      // Create CLAUDE.md
       targetFile = claudeFile
     }
 
@@ -68,10 +62,6 @@ export class AgentFileUpdater {
 
     if (markerIndex === -1) return content + '\n' + newSection
 
-    // Find the end of the Knowledge Context section.
-    // Walk line-by-line from the marker to find either:
-    //   - a new heading at the same level (## …) that is NOT the marker itself
-    //   - end of file
     const lines = content.split('\n')
     let startLine = -1
     let endLine = lines.length
@@ -82,7 +72,6 @@ export class AgentFileUpdater {
         continue
       }
 
-      // Once we've found the start, look for the next heading of any level
       if (startLine !== -1 && i > startLine && /^#{1,6} /.test(lines[i])) {
         endLine = i
         break
