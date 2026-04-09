@@ -1,4 +1,3 @@
-import type { LLMFunctionDefinition, LLMSystemMessage } from '@/constants/llm.js'
 import { TextPrompt } from '@/prompts/text-prompt.js'
 
 export interface ISystemPromptSection {
@@ -7,8 +6,12 @@ export interface ISystemPromptSection {
   description?: string
 }
 
+export interface SystemPromptResult {
+  prompt: string
+  temperature?: number
+}
+
 export class SystemPrompt {
-  private functions: LLMFunctionDefinition[] = []
   private temperature: number | undefined = undefined
   private outputInstructions: string = ''
 
@@ -44,21 +47,7 @@ export class SystemPrompt {
     sections.forEach((section) => this.updateSection(section))
   }
 
-  public updateFunctionDefinition(fn: LLMFunctionDefinition) {
-    const index = this.functions.findIndex((row) => row.name === fn.name)
-
-    if (index >= 0) {
-      this.functions[index] = fn
-    } else {
-      this.functions.push(fn)
-    }
-  }
-
-  public updateFunctionDefinitions(fns: LLMFunctionDefinition[]) {
-    fns.forEach((fn) => this.updateFunctionDefinition(fn))
-  }
-
-  public build(): LLMSystemMessage {
+  public build(): SystemPromptResult {
     const textPrompt = TextPrompt.create()
 
     textPrompt.text(this.persona.trim())
@@ -75,23 +64,6 @@ export class SystemPrompt {
       textPrompt.emptyLine()
     }
 
-    if (this.functions.length > 0) {
-      const tools = TextPrompt.create()
-
-      for (const fn of this.functions) {
-        tools.section('tool', fn.description, { name: fn.name })
-      }
-
-      tools.section(
-        'IMPORTANT',
-        'When calling a tool / function, use exact tool/field names and valid JSON arguments matching the schema.\n' +
-          'Ensure all string values in function call arguments are properly JSON-escaped.',
-      )
-
-      textPrompt.section('available_tools', tools.build())
-      textPrompt.emptyLine()
-    }
-
     if (this.footer.length > 0) {
       textPrompt.text(this.footer.map((item) => item.trim()).join('\n'))
     }
@@ -102,6 +74,6 @@ export class SystemPrompt {
       textPrompt.emptyLine()
     }
 
-    return { prompt: textPrompt.build(), functions: this.functions, temperature: this.temperature }
+    return { prompt: textPrompt.build(), temperature: this.temperature }
   }
 }

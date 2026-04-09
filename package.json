@@ -49,5 +49,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.7.0"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "private": true
 }

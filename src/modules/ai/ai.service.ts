@@ -1,9 +1,10 @@
 import { Agent } from '@mastra/core/agent'
 import type { MastraModelConfig } from '@mastra/core/llm'
+import type { FullOutput, MastraModelOutput } from '@mastra/core/stream'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import type { z } from 'zod'
 
-import type { GenerateTextOptions, GenerateTextResult, StreamTextOptions } from '@/modules/ai/ai.types.js'
+import type { StreamTextOptions } from '@/modules/ai/ai.types.js'
 import { ConfigService } from '@/modules/config/config.service.js'
 
 const MAX_RETRIES = 3
@@ -15,13 +16,16 @@ export class AiService {
 
   constructor(@Inject(ConfigService) private readonly configService: ConfigService) {}
 
-  private async createAgent(systemPrompt: string, agentId: string = 'context-agent'): Promise<Agent> {
+  /**
+   * Create a Mastra Agent configured with the user's model and API keys.
+   */
+  private async createAgent(systemPrompt: string): Promise<Agent> {
     await this.configService.injectEnvKeys()
     const config = this.configService.ensureConfigured()
 
     return new Agent({
-      id: agentId,
-      name: agentId,
+      id: 'context-agent',
+      name: 'context-agent',
       instructions: systemPrompt,
       model: config.model as MastraModelConfig,
     })
@@ -29,77 +33,59 @@ export class AiService {
 
   /**
    * Generate text with the configured AI model.
-   * Includes retry logic with exponential backoff for transient failures.
+   * Returns the full Mastra FullOutput including text, usage, steps, etc.
    */
-  public async generateText(options: GenerateTextOptions): Promise<GenerateTextResult> {
+  public async generate(prompt: string, systemPrompt: string, temperature = 0): Promise<FullOutput> {
     return this.withRetry(async () => {
-      const agent = await this.createAgent(options.systemPrompt || 'You are a helpful assistant.')
+      const agent = await this.createAgent(systemPrompt)
 
-      const response = await agent.generate(options.prompt, {
-        modelSettings: {
-          temperature: options.temperature ?? 0,
-          ...(options.maxTokens ? { maxOutputTokens: options.maxTokens } : {}),
-        },
+      return agent.generate(prompt, {
+        modelSettings: { temperature },
       })
-
-      return {
-        text: response.text,
-        usage: response.usage
-          ? {
-              inputTokens: response.usage.inputTokens,
-              outputTokens: response.usage.outputTokens,
-              totalTokens: response.usage.totalTokens,
-            }
-          : undefined,
-      }
-    }, 'generateText')
-  }
-
-  /**
-   * Stream text from the configured AI model with chunk callbacks.
-   */
-  public async streamText(options: StreamTextOptions): Promise<GenerateTextResult> {
-    return this.withRetry(async () => {
-      const agent = await this.createAgent(options.systemPrompt || 'You are a helpful assistant.')
-
-      const stream = await agent.stream(options.prompt, {
-        modelSettings: {
-          temperature: options.temperature ?? 0,
-          ...(options.maxTokens ? { maxOutputTokens: options.maxTokens } : {}),
-        },
-      })
-
-      let fullText = ''
-
-      for await (const chunk of stream.textStream) {
-        fullText += chunk
-        options.onChunk?.(chunk)
-      }
-
-      return { text: fullText }
-    }, 'streamText')
+    }, 'generate')
   }
 
   /**
    * Generate a structured response validated against a Zod schema.
-   * Uses the AI model's structured output capability.
+   * Returns the full Mastra FullOutput with the typed `object` field.
    */
-  public async generateStructured<T>(options: GenerateTextOptions, schema: z.ZodType<T>): Promise<T> {
+  public async generateStructured<T>(
+    prompt: string,
+    systemPrompt: string,
+    schema: z.ZodType<T>,
+    temperature = 0,
+  ): Promise<FullOutput<T>> {
+    return this.withRetry(async () => {
+      const agent = await this.createAgent(systemPrompt)
+
+      return agent.generate(prompt, {
+        modelSettings: { temperature },
+        structuredOutput: { schema },
+      }) as Promise<FullOutput<T>>
+    }, 'generateStructured')
+  }
+
+  /**
+   * Stream text from the configured AI model with chunk callbacks.
+   * Returns the Mastra MastraModelOutput for further consumption.
+   */
+  public async stream(options: StreamTextOptions): Promise<MastraModelOutput> {
     return this.withRetry(async () => {
       const agent = await this.createAgent(options.systemPrompt || 'You are a helpful assistant.')
 
-      const response = await agent.generate(options.prompt, {
-        modelSettings: {
-          temperature: options.temperature ?? 0,
-        },
-        structuredOutput: {
-          schema,
-        },
+      const stream = await agent.stream(options.prompt, {
+        modelSettings: { temperature: options.temperature ?? 0 },
       })
 
-      // Mastra types the object field based on the schema output type
-      return response.object as T
-    }, 'generateStructured')
+      if (options.onChunk) {
+        // Consume the stream and call onChunk for each chunk
+        for await (const chunk of stream.textStream) {
+          options.onChunk(chunk)
+        }
+      }
+
+      return stream
+    }, 'stream')
   }
 
   /**

@@ -1,10 +1,12 @@
 import { type Instance, render } from 'ink'
 import { createElement } from 'react'
 
-import { App, type InputPromptState, type OutputLine } from './components.js'
+import { App, type InputPromptState, type OutputLine, type TreeItem } from './components.js'
 import { type EnvConfig, EnvResolver } from './env.js'
 
 // ── Public types ───────────────────────────────────────────────────────────────
+
+export type { TreeItem }
 
 export interface SpinnerHandle {
   /** Update the spinner message while it is active. */
@@ -15,11 +17,6 @@ export interface SpinnerHandle {
   fail(message?: string): void
   /** Stop silently (no status line). */
   stop(): void
-}
-
-export interface TreeItem {
-  label: string
-  children?: TreeItem[]
 }
 
 // ── TerminalUI ─────────────────────────────────────────────────────────────────
@@ -174,7 +171,9 @@ export class TerminalUI {
   /** Resume Ink rendering after a `pause()`. */
   resume(): void {
     if (this.isInteractive && !this.inkInstance) {
-      this.inkInstance = render(createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }))
+      this.inkInstance = render(
+        createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }),
+      )
     }
   }
 
@@ -200,7 +199,11 @@ export class TerminalUI {
   }
 
   /** Prompt the user to select from a list of options via Ink SelectInput. */
-  async askObject<T>(prompt: string, availableOptions: T[], formatter: (x: T) => string = (x) => String(x)): Promise<T> {
+  async askObject<T>(
+    prompt: string,
+    availableOptions: T[],
+    formatter: (x: T) => string = (x) => String(x),
+  ): Promise<T> {
     if (this.isCI) {
       this.ciWrite(`\n${prompt}`)
       availableOptions.forEach((opt, i) => this.ciWrite(`  ${i}: ${formatter(opt)}`))
@@ -252,13 +255,17 @@ export class TerminalUI {
   private ensureInk(): void {
     if (!this.initialized && this.isInteractive) {
       this.initialized = true
-      this.inkInstance = render(createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }))
+      this.inkInstance = render(
+        createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }),
+      )
     }
   }
 
   private rerender(): void {
     if (this.inkInstance) {
-      this.inkInstance.rerender(createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }))
+      this.inkInstance.rerender(
+        createElement(App, { lines: this.lines, spinner: this.spinnerState, input: this.inputState }),
+      )
     }
   }
 

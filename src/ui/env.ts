@@ -45,14 +45,13 @@ export class EnvResolver {
 
   resolve(): EnvConfig {
     const ci =
-      EnvResolver.isTruthy(process.env.CI) ||
-      EnvResolver.isTruthy(process.env.TWOCONTEXT_CI) ||
-      !process.stdout.isTTY
+      EnvResolver.isTruthy(process.env.CI) || EnvResolver.isTruthy(process.env.TWOCONTEXT_CI) || !process.stdout.isTTY
 
     return {
       ci,
       silent: EnvResolver.isTruthy(process.env.TWOCONTEXT_SILENT),
-      noColor: ci || EnvResolver.isTruthy(process.env.NO_COLOR) || EnvResolver.isTruthy(process.env.TWOCONTEXT_NO_COLOR),
+      noColor:
+        ci || EnvResolver.isTruthy(process.env.NO_COLOR) || EnvResolver.isTruthy(process.env.TWOCONTEXT_NO_COLOR),
       provider: process.env.TWOCONTEXT_PROVIDER,
       model: process.env.TWOCONTEXT_MODEL,
       branch: process.env.TWOCONTEXT_BRANCH,

@@ -64,17 +64,13 @@ export class GroupingService {
     const systemPrompt = new CommitGroupingSystemPrompt()
 
     try {
-      const result = await this.aiService.generateStructured(
-        {
-          systemPrompt: systemPrompt.build().prompt,
-          prompt,
-          temperature: 0,
-          maxTokens: 4000,
-        },
+      const response = await this.aiService.generateStructured<z.infer<typeof CommitGroupSchema>>(
+        prompt,
+        systemPrompt.build().prompt,
         CommitGroupSchema,
       )
 
-      return this.resolveGroups(result.groups, commits)
+      return this.resolveGroups(response.object.groups, commits)
     } catch (error) {
       this.logger.warn(`AI grouping failed, using single group fallback: ${error}`)
 

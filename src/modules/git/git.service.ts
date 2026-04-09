@@ -84,9 +84,10 @@ export class GitService {
     const logResult = await git.raw(['log', '--format=%H|%h|%an|%aI|%s', '-1', commitHash])
     const commit = this.parseCommitLine(logResult.trim())
 
+    // Use diff-tree which natively supports --root for the initial commit
     const diffStatResult = await git
-      .raw(['diff', '--numstat', `${commitHash}~1`, commitHash])
-      .catch(() => git.raw(['diff', '--numstat', '--root', commitHash]))
+      .raw(['diff-tree', '--no-commit-id', '-r', '--numstat', commitHash])
+      .catch(() => git.raw(['diff-tree', '--no-commit-id', '-r', '--numstat', '--root', commitHash]))
 
     const files: FileDiff[] = []
 
@@ -100,7 +101,7 @@ export class GitService {
         try {
           diff = await git
             .raw(['diff', `${commitHash}~1`, commitHash, '--', filename])
-            .catch(() => git.raw(['diff', '--root', commitHash, '--', filename]))
+            .catch(() => git.raw(['show', '--format=', commitHash, '--', filename]))
         } catch {
           // Skip files that fail to diff
         }

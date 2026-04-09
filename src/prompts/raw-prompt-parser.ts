@@ -1,4 +1,3 @@
-import type { LLMMessage } from '@/constants/llm.js'
 import { BasePromptParser } from '@/prompts/base-prompt-parser.js'
 import { RawPromptBuilder } from '@/prompts/raw-prompt-builder.js'
 
@@ -11,11 +10,7 @@ export class RawPromptParser extends BasePromptParser<string> {
     return new RawPromptBuilder()
   }
 
-  public async parseResponse(response: { messages: LLMMessage[] }, completed = true): Promise<string> {
-    return this.parseContent(this.extractContent(response), completed)
-  }
-
-  private parseContent(content: string, _completed: boolean): string {
+  public async parseResponse(content: string, _completed = true): Promise<string> {
     return content.trim()
   }
 }

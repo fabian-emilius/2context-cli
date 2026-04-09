@@ -10,10 +10,7 @@ export class TokenSplitter {
    * Split text into distinct chunks where each chunk fits within `maxTokens`.
    * If the text already fits, returns a single-element array.
    */
-  splitIntoDistinctChunks(
-    text: string,
-    maxTokens: number,
-  ): Array<{ part: string; tokens: number }> {
+  splitIntoDistinctChunks(text: string, maxTokens: number): Array<{ part: string; tokens: number }> {
     const totalTokens = this.estimateTokenCount(text)
     if (totalTokens <= maxTokens) {
       return [{ part: text, tokens: totalTokens }]

@@ -7,11 +7,10 @@ export abstract class BaseCommand extends CommandRunner {
   public async run(passedParam: string[], options?: Record<string, unknown>): Promise<void> {
     try {
       await this.execute(passedParam, options)
-      process.exit(0)
     } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error))
       this.logger.error(err.message, err.stack)
-      process.exit(1)
+      process.exitCode = 1
     }
   }
 

@@ -12,3 +12,6 @@ yarn-error.log*
 .vscode/*
 .idea/*
 .DS_Store
+
+# 2context analysis state (knowledge files should be committed)
+.2context/state.json

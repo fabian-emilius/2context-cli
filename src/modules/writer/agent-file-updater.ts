@@ -68,19 +68,32 @@ export class AgentFileUpdater {
 
     if (markerIndex === -1) return content + '\n' + newSection
 
-    // Find the end of the section (next ## heading or end of file)
-    const afterMarker = content.indexOf('\n', markerIndex)
-    let endIndex = content.length
+    // Find the end of the Knowledge Context section.
+    // Walk line-by-line from the marker to find either:
+    //   - a new heading at the same level (## …) that is NOT the marker itself
+    //   - end of file
+    const lines = content.split('\n')
+    let startLine = -1
+    let endLine = lines.length
 
-    // Look for next section heading
-    const nextHeading = content.indexOf('\n## ', afterMarker + 1)
-    if (nextHeading !== -1) {
-      endIndex = nextHeading
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith(SECTION_MARKER)) {
+        startLine = i
+        continue
+      }
+
+      // Once we've found the start, look for the next heading of any level
+      if (startLine !== -1 && i > startLine && /^#{1,6} /.test(lines[i])) {
+        endLine = i
+        break
+      }
     }
 
-    const before = content.substring(0, markerIndex).trimEnd()
-    const after = content.substring(endIndex)
+    if (startLine === -1) return content + '\n' + newSection
 
-    return before + '\n\n' + newSection + after
+    const before = lines.slice(0, startLine).join('\n').trimEnd()
+    const after = lines.slice(endLine).join('\n')
+
+    return before + '\n\n' + newSection + (after ? '\n' + after : '')
   }
 }

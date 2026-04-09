@@ -202,21 +202,17 @@ export class ContextGeneratorService {
     const userPrompt = buildInsightExtractionPrompt(group, diffs)
 
     try {
-      const result = await this.aiService.generateStructured(
-        {
-          systemPrompt: systemPrompt.build().prompt,
-          prompt: userPrompt,
-          temperature: 0,
-          maxTokens: 4000,
-        },
+      const response = await this.aiService.generateStructured<z.infer<typeof InsightSchema>>(
+        userPrompt,
+        systemPrompt.build().prompt,
         InsightSchema,
       )
 
       const validCategories = new Set<string>(Object.values(KnowledgeCategory))
 
-      return result.insights
-        .filter((raw) => raw.content.trim().length > 0)
-        .map((raw) => ({
+      return response.object.insights
+        .filter((raw: z.infer<typeof InsightSchema>['insights'][number]) => raw.content.trim().length > 0)
+        .map((raw: z.infer<typeof InsightSchema>['insights'][number]) => ({
           title: raw.title,
           category: validCategories.has(raw.category) ? (raw.category as KnowledgeCategory) : KnowledgeCategory.Pattern,
           content: raw.content,

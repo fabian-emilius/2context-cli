@@ -1,21 +1,9 @@
-import type { LLMMessage } from '@/constants/llm.js'
-import { MessageBuilder } from '@/helpers/messages.js'
-import { TokenSplitter } from '@/helpers/token-splitter.js'
-
 export class TextPrompt {
-  public static create(maxElementTokens?: number): TextPrompt {
-    return new TextPrompt(maxElementTokens)
+  public static create(): TextPrompt {
+    return new TextPrompt()
   }
 
   private items: string[] = []
-  private readonly splitter = new TokenSplitter()
-  private readonly messageBuilder = new MessageBuilder()
-
-  constructor(private readonly maxElementTokens?: number) {
-    if (maxElementTokens && maxElementTokens <= 0) {
-      throw new Error('maxTokens must be greater than 0')
-    }
-  }
 
   public isEmpty(): boolean {
     return this.items.length === 0
@@ -26,12 +14,7 @@ export class TextPrompt {
       return this
     }
 
-    if (this.maxElementTokens) {
-      this.items.push(this.splitter.limitTokens(text, this.maxElementTokens))
-    } else {
-      this.items.push(text)
-    }
-
+    this.items.push(text)
     return this
   }
 
@@ -44,14 +27,7 @@ export class TextPrompt {
   }
 
   public list(items: string[]): TextPrompt {
-    if (this.maxElementTokens) {
-      const limit = this.maxElementTokens
-
-      this.items.push(items.map((item) => `- ${this.splitter.limitTokens(item, limit)}`).join('\n'))
-    } else {
-      this.items.push(items.map((item) => `- ${item}`).join('\n'))
-    }
-
+    this.items.push(items.map((item) => `- ${item}`).join('\n'))
     return this
   }
 
@@ -73,51 +49,23 @@ export class TextPrompt {
       return this
     }
 
-    const wrapContent = (content: string) => {
-      if (!content.trim()) {
+    const wrapContent = (c: string) => {
+      if (!c.trim()) {
         return `<${name}${params} />`
       }
 
-      if (content && content.includes('\n')) {
-        return `<${name}${params}>\n${content}\n</${name}>`
+      if (c.includes('\n')) {
+        return `<${name}${params}>\n${c}\n</${name}>`
       } else {
-        return `<${name}${params}>${content}</${name}>`
+        return `<${name}${params}>${c}</${name}>`
       }
     }
 
-    if (this.maxElementTokens) {
-      this.items.push(wrapContent(this.splitter.limitTokens(content || '', this.maxElementTokens)))
-    } else {
-      this.items.push(wrapContent(content || ''))
-    }
-
+    this.items.push(wrapContent(content || ''))
     return this
   }
 
-  public build(maxTokens?: number): string {
-    const result = this.items.join('\n')
-
-    if (!maxTokens || result.length <= maxTokens) {
-      return result
-    }
-
-    let outputTokens = 0
-
-    for (let i = 0; i < this.items.length; i++) {
-      const item = this.items[i]
-      const itemTokens = this.splitter.estimateTokenCount(item)
-
-      if (maxTokens && outputTokens + itemTokens > maxTokens) {
-        return this.items.slice(0, i).join('\n')
-      }
-
-      outputTokens += itemTokens
-    }
-
-    return result
-  }
-
-  public buildLLMMessage(): LLMMessage {
-    return this.messageBuilder.buildUserMessage(this.build())
+  public build(): string {
+    return this.items.join('\n')
   }
 }

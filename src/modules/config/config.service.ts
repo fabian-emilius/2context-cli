@@ -3,7 +3,13 @@ import path from 'node:path'
 
 import { Injectable, Logger } from '@nestjs/common'
 
-import { AI_PROVIDER_ENV_KEYS, AI_PROVIDER_LABELS, AI_PROVIDER_MODELS, AiProvider, DEFAULT_MODELS } from '@/constants/ai.js'
+import {
+  AI_PROVIDER_ENV_KEYS,
+  AI_PROVIDER_LABELS,
+  AI_PROVIDER_MODELS,
+  AiProvider,
+  DEFAULT_MODELS,
+} from '@/constants/ai.js'
 import { FileSystem } from '@/helpers/fs.js'
 import type { TwoContextConfig } from '@/modules/config/config.types.js'
 import type { TerminalUI } from '@/ui/terminal-ui.js'
@@ -76,9 +82,7 @@ export class ConfigService {
     const defaultModel = DEFAULT_MODELS[provider]
     ui.dim(`Default model: ${defaultModel}`)
 
-    const model = await ui.askObject<string>('Select model', models, (m) =>
-      m === defaultModel ? `${m} (default)` : m,
-    )
+    const model = await ui.askObject<string>('Select model', models, (m) => (m === defaultModel ? `${m} (default)` : m))
 
     const config: TwoContextConfig = { provider, model, keys: { [envKey]: apiKey } }
 
@@ -230,11 +234,20 @@ export class ConfigService {
 
   /**
    * Ensure the CLI is configured, throwing if not.
-   * Prefers the in-memory cache when available so this can be called
-   * after an earlier `resolve()` / `loadConfig()` / `saveConfig()` without hitting disk again.
+   *
+   * Checks the in-memory cache first (populated by `resolve()`, `loadConfig()`, or `saveConfig()`).
+   * Falls back to environment variable resolution so callers don't need to
+   * worry about the order of prior async calls.
    */
   public ensureConfigured(): TwoContextConfig {
     if (this.cachedConfig) return this.cachedConfig
+
+    // Last resort: try env vars so this works even if resolve() was never called
+    const envConfig = this.resolveFromEnv()
+    if (envConfig) {
+      this.cacheAndInject(envConfig)
+      return envConfig
+    }
 
     throw new Error('Not configured. Run "2context init" first to set up your API provider and keys.')
   }

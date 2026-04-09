@@ -1,6 +1,3 @@
-import type { LLMMessage } from '@/constants/llm.js'
-import { MessageBuilder } from '@/helpers/messages.js'
-
 interface StepNode {
   instruction: string
 }
@@ -18,7 +15,6 @@ export class ProcessPrompt {
 
   private stepNodes: StepNode[] = []
   private decisionNode: DecisionNode | undefined = undefined
-  private readonly messageBuilder = new MessageBuilder()
 
   constructor() {}
 
@@ -78,9 +74,5 @@ export class ProcessPrompt {
     }
 
     return result
-  }
-
-  public buildLLMMessage(): LLMMessage {
-    return this.messageBuilder.buildUserMessage(this.build())
   }
 }

@@ -1,12 +1,9 @@
-import type { LLMMessage } from '@/constants/llm.js'
-import { MessageBuilder } from '@/helpers/messages.js'
 import type { BasePromptParser } from '@/prompts/base-prompt-parser.js'
 
 export abstract class BasePromptBuilder<T> {
   protected task = ''
   protected data = ''
   protected files = ''
-  private readonly messageBuilder = new MessageBuilder()
 
   public abstract createParser(): BasePromptParser<T>
 
@@ -50,10 +47,6 @@ export abstract class BasePromptBuilder<T> {
     }
 
     return prompt
-  }
-
-  public buildLLMMessage(): LLMMessage {
-    return this.messageBuilder.buildUserMessage(this.buildTextMessage())
   }
 
   public buildOutputFormatInstructions() {

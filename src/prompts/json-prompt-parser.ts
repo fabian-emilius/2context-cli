@@ -1,6 +1,5 @@
 import { jsonrepair } from 'jsonrepair'
 
-import type { LLMMessage } from '@/constants/llm.js'
 import { BasePromptParser } from '@/prompts/base-prompt-parser.js'
 import { JsonPromptBuilder } from '@/prompts/json-prompt-builder.js'
 import type {
@@ -21,8 +20,8 @@ export class JsonPromptParser<
     return new JsonPromptBuilder<OutputFormat, ObjectFormat>(this.outputFormat)
   }
 
-  public async parseResponse(response: { messages: LLMMessage[] }, completed = true): Promise<ObjectFormat> {
-    return this.parseContent(this.extractContent(response), completed)
+  public async parseResponse(content: string, completed = true): Promise<ObjectFormat> {
+    return this.parseContent(content, completed)
   }
 
   private parseContent(content: string, completed: boolean): ObjectFormat {

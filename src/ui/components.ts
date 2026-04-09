@@ -182,15 +182,18 @@ function LineRenderer({ line }: { line: OutputLine }): ReactNode {
 
 // ── Input prompts ─────────────────────────────────────────────────────────────
 
-function TextPrompt({ prompt, defaultValue, onSubmit }: { prompt: string; defaultValue?: string; onSubmit: (value: string) => void }): ReactNode {
+function TextPrompt({
+  prompt,
+  defaultValue,
+  onSubmit,
+}: {
+  prompt: string
+  defaultValue?: string
+  onSubmit: (value: string) => void
+}): ReactNode {
   const [value, setValue] = useState(defaultValue || '')
 
-  return h(
-    Box,
-    null,
-    h(Text, { bold: true }, `${prompt}: `),
-    h(TextInput, { value, onChange: setValue, onSubmit }),
-  )
+  return h(Box, null, h(Text, { bold: true }, `${prompt}: `), h(TextInput, { value, onChange: setValue, onSubmit }))
 }
 
 function SecretPrompt({ prompt, onSubmit }: { prompt: string; onSubmit: (value: string) => void }): ReactNode {
@@ -204,7 +207,15 @@ function SecretPrompt({ prompt, onSubmit }: { prompt: string; onSubmit: (value: 
   )
 }
 
-function SelectPrompt({ prompt, items, onSubmit }: { prompt: string; items: { label: string; value: string }[]; onSubmit: (value: string) => void }): ReactNode {
+function SelectPrompt({
+  prompt,
+  items,
+  onSubmit,
+}: {
+  prompt: string
+  items: { label: string; value: string }[]
+  onSubmit: (value: string) => void
+}): ReactNode {
   return h(
     Box,
     { flexDirection: 'column' },

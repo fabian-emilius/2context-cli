@@ -91,10 +91,10 @@ export function buildInsightExtractionPrompt(group: CommitGroup, diffs: CommitDi
     prompt.emptyLine()
   }
 
-  // Diffs (token-limited)
+  // Diffs
   if (diffs.length > 0) {
     prompt.text('=== FILE CHANGES ===')
-    const diffPrompt = TextPrompt.create(3000)
+    const diffPrompt = TextPrompt.create()
 
     for (const commitDiff of diffs) {
       for (const file of commitDiff.files) {
