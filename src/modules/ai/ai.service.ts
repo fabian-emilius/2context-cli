@@ -1,20 +1,22 @@
 import { Agent } from '@mastra/core/agent'
 import type { MastraModelConfig } from '@mastra/core/llm'
 import type { FullOutput, MastraModelOutput } from '@mastra/core/stream'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import type { z } from 'zod'
 
 import type { StreamTextOptions } from '@/modules/ai/ai.types.js'
 import { ConfigService } from '@/modules/config/config.service.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 
 const MAX_RETRIES = 3
 const INITIAL_BACKOFF_MS = 1000
 
 @Injectable()
 export class AiService {
-  private readonly logger = new Logger('AiService')
-
-  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {}
+  constructor(
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService,
+  ) {}
 
   /**
    * Create a Mastra Agent configured with the user's model and API keys.
@@ -102,15 +104,17 @@ export class AiService {
 
         if (attempt < MAX_RETRIES - 1) {
           const backoffMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt)
-          this.logger.warn(
-            `${operationName} failed (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${backoffMs}ms: ${lastError.message}`,
+          void this.errorLogger.warn(
+            'AiService',
+            `${operationName} failed (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${backoffMs}ms`,
+            lastError,
           )
           await this.sleep(backoffMs)
         }
       }
     }
 
-    this.logger.error(`${operationName} failed after ${MAX_RETRIES} attempts`)
+    await this.errorLogger.error('AiService', `${operationName} failed after ${MAX_RETRIES} attempts`, lastError)
     throw lastError
   }
 

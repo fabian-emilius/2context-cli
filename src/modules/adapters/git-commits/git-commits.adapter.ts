@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 
 import { FileSystem } from '@/helpers/fs.js'
 import type {
@@ -19,6 +19,8 @@ import {
   PROCESSED_HASH_CAP,
 } from '@/modules/adapters/git-commits/git-commits.types.js'
 import { GitCommitsGroupingService } from '@/modules/adapters/git-commits/grouping.service.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
+import type { SpinnerHandle } from '@/ui/terminal-ui.js'
 
 const STATE_FILE = 'state.json'
 
@@ -27,12 +29,12 @@ export class GitCommitsAdapter implements SourceAdapter<GitCommitsState> {
   public readonly id = 'git-commits'
   public readonly label = 'Git commits'
 
-  private readonly logger = new Logger('GitCommitsAdapter')
   private stateDir: string | null = null
 
   constructor(
     @Inject(GitCommitsGroupingService) private readonly grouping: GitCommitsGroupingService,
     @Inject(GitCommitsExtractionService) private readonly extraction: GitCommitsExtractionService,
+    @Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService,
   ) {}
 
   public setStateDir(dir: string): void {
@@ -53,7 +55,7 @@ export class GitCommitsAdapter implements SourceAdapter<GitCommitsState> {
         config: { ...DEFAULT_GIT_COMMITS_CONFIG, ...(parsed.config || {}) },
       }
     } catch (error) {
-      this.logger.warn(`Failed to parse git-commits state: ${error}. Seeding fresh state.`)
+      await this.errorLogger.warn('GitCommitsAdapter', 'Failed to parse git-commits state, seeding fresh state', error)
       return this.seedState()
     }
   }
@@ -73,48 +75,69 @@ export class GitCommitsAdapter implements SourceAdapter<GitCommitsState> {
     ctx: AdapterContext,
     _opts: IngestOptions,
   ): Promise<{ items: KnowledgeItem[]; updatedState: GitCommitsState; counters: AdapterIngestCounters }> {
-    const commits = await this.fetchCommits(state, ctx)
+    let activeSpinner: SpinnerHandle | null = null
+    try {
+      activeSpinner = ctx.ui.spinner('[git-commits] fetching commits...')
+      const commits = await this.fetchCommits(state, ctx)
 
-    if (commits.length === 0) {
-      return {
-        items: [],
-        updatedState: { ...state, lastRun: new Date().toISOString() },
-        counters: { itemsProduced: 0, materialProcessed: 0, groupsProcessed: 0 },
+      if (commits.length === 0) {
+        activeSpinner.succeed('[git-commits] no new commits to analyze')
+        activeSpinner = null
+        return {
+          items: [],
+          updatedState: { ...state, lastRun: new Date().toISOString() },
+          counters: { itemsProduced: 0, materialProcessed: 0, groupsProcessed: 0 },
+        }
       }
-    }
 
-    ctx.ui.dim(`[git-commits] Found ${commits.length} commits to analyze.`)
+      activeSpinner.succeed(`[git-commits] fetched ${commits.length} commits`)
+      activeSpinner = null
 
-    // Grouping
-    const groups = await this.grouping.groupCommits(ctx.ai, ctx.git, commits)
-    ctx.ui.dim(`[git-commits] Identified ${groups.length} feature groups.`)
+      // Grouping
+      activeSpinner = ctx.ui.spinner('[git-commits] grouping into features...')
+      const groupingSpinner = activeSpinner
+      const groups = await this.grouping.groupCommits(ctx.ai, ctx.git, commits, (msg) =>
+        groupingSpinner.update(`[git-commits] ${msg}`),
+      )
+      activeSpinner.succeed(`[git-commits] ${groups.length} feature groups identified`)
+      activeSpinner = null
 
-    // Extraction
-    const progress = (msg: string) => ctx.ui.dim(`[git-commits] ${msg}`)
-    const { items, stats } = await this.extraction.extractFromGroups(ctx.ai, ctx.git, groups, progress)
-    ctx.ui.dim(`[git-commits] Extracted ${items.length} knowledge items.`)
+      // Extraction
+      activeSpinner = ctx.ui.spinner('[git-commits] extracting insights...')
+      const extractionSpinner = activeSpinner
+      const { items, stats } = await this.extraction.extractFromGroups(ctx.ai, ctx.git, groups, (msg) =>
+        extractionSpinner.update(`[git-commits] ${msg}`),
+      )
+      activeSpinner.succeed(`[git-commits] extracted ${items.length} knowledge items`)
+      activeSpinner = null
 
-    // Update state
-    const processedNow = commits.map((c) => c.hash)
-    const mergedHashes = this.capHashes([...processedNow, ...state.processedHashes])
-    const newCursor = commits[0]?.hash ?? state.cursor
+      // Update state
+      const processedNow = commits.map((c) => c.hash)
+      const mergedHashes = this.capHashes([...processedNow, ...state.processedHashes])
+      const newCursor = commits[0]?.hash ?? state.cursor
 
-    const updatedState: GitCommitsState = {
-      ...state,
-      cursor: newCursor,
-      processedHashes: mergedHashes,
-      lastRun: new Date().toISOString(),
-      totalItemsExtracted: state.totalItemsExtracted + items.length,
-    }
+      const updatedState: GitCommitsState = {
+        ...state,
+        cursor: newCursor,
+        processedHashes: mergedHashes,
+        lastRun: new Date().toISOString(),
+        totalItemsExtracted: state.totalItemsExtracted + items.length,
+      }
 
-    return {
-      items,
-      updatedState,
-      counters: {
-        itemsProduced: items.length,
-        materialProcessed: commits.length,
-        groupsProcessed: stats.groupsProcessed,
-      },
+      return {
+        items,
+        updatedState,
+        counters: {
+          itemsProduced: items.length,
+          materialProcessed: commits.length,
+          groupsProcessed: stats.groupsProcessed,
+        },
+      }
+    } catch (error) {
+      if (activeSpinner) {
+        activeSpinner.fail(`[git-commits] failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      throw error
     }
   }
 
@@ -183,8 +206,8 @@ export class GitCommitsAdapter implements SourceAdapter<GitCommitsState> {
   private async safeCommitsSince(ctx: AdapterContext, since: string, branch?: string) {
     try {
       return await ctx.git.getCommitsSince(since, branch)
-    } catch {
-      this.logger.warn('Previous cursor invalid. Falling back to full history.')
+    } catch (error) {
+      await this.errorLogger.warn('GitCommitsAdapter', 'Previous cursor invalid, falling back to full history', error)
       return ctx.git.getAllCommits(branch)
     }
   }

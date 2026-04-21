@@ -19,4 +19,5 @@ export interface IngestResult {
   filesAffected: number
   rebalance: { moves: number; splits: number; merges: number }
   isIncremental: boolean
+  warningsLogged: number
 }

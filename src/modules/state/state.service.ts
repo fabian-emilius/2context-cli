@@ -106,6 +106,7 @@ export class StateService {
 
   /**
    * Ensure `.2context/`, `sources/`, and `graph/{category}/` exist.
+   * Also writes `.2context/.gitignore` to keep local-only files out of git.
    */
   public async scaffoldDirs(): Promise<void> {
     await this.fs.ensureDir(this.getStateDir())
@@ -114,6 +115,11 @@ export class StateService {
     const categories = ['architecture', 'convention', 'decision', 'pattern']
     for (const category of categories) {
       await this.fs.ensureDir(path.join(this.getGraphDir(), category))
+    }
+
+    const gitignorePath = path.join(this.getStateDir(), '.gitignore')
+    if (!(await this.fs.pathExists(gitignorePath))) {
+      await this.fs.writeFileWithDir(gitignorePath, 'errors.log\n')
     }
   }
 

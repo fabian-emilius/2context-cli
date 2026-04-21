@@ -4,6 +4,7 @@ import { Command, Option } from 'nest-commander'
 import { AI_PROVIDER_LABELS } from '@/constants/ai.js'
 import { BaseCommand } from '@/helpers/base-command.js'
 import { ConfigService } from '@/modules/config/config.service.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 import { PipelineService } from '@/modules/pipeline/pipeline.service.js'
 import { TerminalUI } from '@/ui/terminal-ui.js'
 
@@ -22,6 +23,7 @@ export class InitCommand extends BaseCommand {
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(PipelineService) private readonly pipeline: PipelineService,
+    @Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService,
   ) {
     super()
   }
@@ -43,21 +45,28 @@ export class InitCommand extends BaseCommand {
     this.ui.success('Workspace scaffolded: .2context/')
     this.ui.blank()
 
-    // First ingest
-    const spinner = this.ui.spinner('Running first ingest...')
-    const result = await this.pipeline.ingest(
-      this.ui,
-      {
-        branch: options?.branch || this.ui.env.branch,
-        verbose: options?.verbose || this.ui.env.verbose,
-      },
-      (msg) => spinner.update(msg),
-    )
-    spinner.succeed('Ingest complete')
-
-    this.printResult(result)
+    // First ingest — the pipeline owns per-phase step counters and spinners.
+    const result = await this.pipeline.ingest(this.ui, {
+      branch: options?.branch || this.ui.env.branch,
+      verbose: options?.verbose || this.ui.env.verbose,
+    })
 
     this.ui.blank()
+    this.ui.success('Ingest complete')
+    this.printResult(result)
+
+    if (result.warningsLogged > 0) {
+      this.ui.warning(`${result.warningsLogged} warning(s) logged to ${this.errorLogger.getLogFileRelativePath()}`)
+    }
+
+    this.ui.blank()
+    this.ui.cleanup()
+  }
+
+  protected async persistFatal(error: Error): Promise<void> {
+    this.errorLogger.setRepoRoot(process.cwd())
+    await this.errorLogger.error('InitCommand', error.message, error)
+    this.ui.error(`See ${this.errorLogger.getLogFileRelativePath()} for details.`)
     this.ui.cleanup()
   }
 

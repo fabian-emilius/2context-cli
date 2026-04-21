@@ -3,6 +3,7 @@ import { Command, Option } from 'nest-commander'
 
 import { BaseCommand } from '@/helpers/base-command.js'
 import { ConfigService } from '@/modules/config/config.service.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 import { PipelineService } from '@/modules/pipeline/pipeline.service.js'
 import { TerminalUI } from '@/ui/terminal-ui.js'
 
@@ -24,6 +25,7 @@ export class IngestCommand extends BaseCommand {
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(PipelineService) private readonly pipeline: PipelineService,
+    @Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService,
   ) {
     super()
   }
@@ -41,20 +43,16 @@ export class IngestCommand extends BaseCommand {
       }
     }
 
-    const spinner = this.ui.spinner('Ingesting...')
-    const result = await this.pipeline.ingest(
-      this.ui,
-      {
-        branch: options?.branch || this.ui.env.branch,
-        verbose: options?.verbose || this.ui.env.verbose,
-        force: options?.force,
-        source: options?.source,
-        noRebalance: options?.noRebalance,
-      },
-      (msg) => spinner.update(msg),
-    )
-    spinner.succeed('Ingest complete')
+    const result = await this.pipeline.ingest(this.ui, {
+      branch: options?.branch || this.ui.env.branch,
+      verbose: options?.verbose || this.ui.env.verbose,
+      force: options?.force,
+      source: options?.source,
+      noRebalance: options?.noRebalance,
+    })
 
+    this.ui.blank()
+    this.ui.success('Ingest complete')
     this.ui.divider('Results')
     this.ui.keyValue([
       ['Items produced', String(result.totalItemsProduced)],
@@ -74,7 +72,18 @@ export class IngestCommand extends BaseCommand {
       )
     }
 
+    if (result.warningsLogged > 0) {
+      this.ui.warning(`${result.warningsLogged} warning(s) logged to ${this.errorLogger.getLogFileRelativePath()}`)
+    }
+
     this.ui.blank()
+    this.ui.cleanup()
+  }
+
+  protected async persistFatal(error: Error): Promise<void> {
+    this.errorLogger.setRepoRoot(process.cwd())
+    await this.errorLogger.error('IngestCommand', error.message, error)
+    this.ui.error(`See ${this.errorLogger.getLogFileRelativePath()} for details.`)
     this.ui.cleanup()
   }
 

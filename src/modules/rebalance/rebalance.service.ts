@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { z } from 'zod'
 
 import { slugify } from '@/helpers/slug.js'
 import type { KnowledgeCategory, KnowledgeItem } from '@/modules/adapters/adapter.types.js'
 import { ROOT_CATEGORIES } from '@/modules/adapters/adapter.types.js'
 import { AiService } from '@/modules/ai/ai.service.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 import { ClusterSystemPrompt } from '@/modules/rebalance/prompts/cluster.system-prompt.js'
 import { StateService } from '@/modules/state/state.service.js'
 import type { GlobalState, RebalanceConfig } from '@/modules/state/state.types.js'
@@ -40,12 +41,11 @@ export interface RebalanceResult {
 
 @Injectable()
 export class RebalanceService {
-  private readonly logger = new Logger('RebalanceService')
-
   constructor(
     @Inject(AiService) private readonly ai: AiService,
     @Inject(StateService) private readonly stateService: StateService,
     @Inject(WriterService) private readonly writer: WriterService,
+    @Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService,
   ) {}
 
   /**
@@ -55,11 +55,17 @@ export class RebalanceService {
    *
    * @param dryRun  When true, computes moves without writing files or updating state.
    */
-  public async run(state: GlobalState, repoRoot: string, dryRun = false): Promise<RebalanceResult> {
+  public async run(
+    state: GlobalState,
+    repoRoot: string,
+    dryRun = false,
+    onProgress?: (message: string) => void,
+  ): Promise<RebalanceResult> {
     const result: RebalanceResult = { moves: 0, splits: 0, merges: 0, summaries: [] }
     const graphRoot = this.stateService.getGraphDir()
 
     for (const category of ROOT_CATEGORIES) {
+      onProgress?.(`clustering ${category}`)
       const folderPath = path.join(graphRoot, category)
       await this.rebalanceFolder(state, repoRoot, folderPath, [category], result, dryRun)
     }
@@ -178,7 +184,7 @@ export class RebalanceService {
       const clusters = await this.clusterWithLLM(items, pathSegments, config)
       return this.planSplitMoves(items, clusters, pathSegments, config)
     } catch (error) {
-      this.logger.warn(`Clustering failed for ${pathSegments.join('/')}: ${error}`)
+      await this.errorLogger.warn('RebalanceService', `Clustering failed for ${pathSegments.join('/')}`, error)
       return []
     }
   }

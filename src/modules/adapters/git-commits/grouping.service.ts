@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { z } from 'zod'
 
 import type { FeatureGroup } from '@/modules/adapters/git-commits/git-commits.types.js'
@@ -6,6 +6,7 @@ import { CommitGroupingSystemPrompt } from '@/modules/adapters/git-commits/promp
 import type { AiService } from '@/modules/ai/ai.service.js'
 import type { GitService } from '@/modules/git/git.service.js'
 import type { CommitInfo } from '@/modules/git/git.types.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 import { TextPrompt } from '@/prompts/text-prompt.js'
 
 /** Max commits per AI grouping call. */
@@ -24,25 +25,31 @@ const CommitGroupSchema = z.object({
 
 @Injectable()
 export class GitCommitsGroupingService {
-  private readonly logger = new Logger('GitCommitsGroupingService')
+  constructor(@Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService) {}
 
   /**
    * Group commits into logical feature groups using AI.
    * Batches large sets and processes each batch independently.
    */
-  public async groupCommits(ai: AiService, git: GitService, commits: CommitInfo[]): Promise<FeatureGroup[]> {
+  public async groupCommits(
+    ai: AiService,
+    git: GitService,
+    commits: CommitInfo[],
+    onProgress?: (message: string) => void,
+  ): Promise<FeatureGroup[]> {
     if (commits.length === 0) return []
 
     if (commits.length <= BATCH_SIZE) {
+      onProgress?.(`grouping ${commits.length} commits`)
       return this.groupBatch(ai, git, commits)
     }
 
     const allGroups: FeatureGroup[] = []
     const batches = this.createBatches(commits, BATCH_SIZE)
 
-    this.logger.log(`Processing ${batches.length} batches of commits`)
-
-    for (const batch of batches) {
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]
+      onProgress?.(`grouping batch ${i + 1}/${batches.length} (${batch.length} commits)`)
       const batchGroups = await this.groupBatch(ai, git, batch)
       allGroups.push(...batchGroups)
     }
@@ -67,7 +74,7 @@ export class GitCommitsGroupingService {
 
       return this.resolveGroups(response.object.groups, commits)
     } catch (error) {
-      this.logger.warn(`AI grouping failed, using single group fallback: ${error}`)
+      await this.errorLogger.warn('GitCommitsGroupingService', 'AI grouping failed, using single-group fallback', error)
 
       return [
         {

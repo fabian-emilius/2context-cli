@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { z } from 'zod'
 
 import { slugify } from '@/helpers/slug.js'
@@ -14,6 +14,7 @@ import {
 import type { AiService } from '@/modules/ai/ai.service.js'
 import type { GitService } from '@/modules/git/git.service.js'
 import type { CommitDiff } from '@/modules/git/git.types.js'
+import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 
 /** Max parallel feature groups to analyze simultaneously. */
 const CONCURRENCY_LIMIT = 3
@@ -65,6 +66,8 @@ export interface ExtractionStats {
 export class GitCommitsExtractionService {
   private readonly logger = new Logger('GitCommitsExtractionService')
 
+  constructor(@Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService) {}
+
   /**
    * Extract knowledge items from feature groups. Runs extraction for
    * non-trivial groups with bounded concurrency, fetches diffs per group,
@@ -86,21 +89,28 @@ export class GitCommitsExtractionService {
       )
     }
 
+    onProgress(`extracting insights (0/${meaningfulGroups.length} groups)`)
+
     for (let i = 0; i < meaningfulGroups.length; i += CONCURRENCY_LIMIT) {
       const batch = meaningfulGroups.slice(i, i + CONCURRENCY_LIMIT)
 
       const results = await Promise.allSettled(batch.map((group) => this.extractFromGroup(ai, git, group)))
 
-      for (const result of results) {
+      for (let idx = 0; idx < results.length; idx++) {
+        const result = results[idx]
         if (result.status === 'fulfilled') {
           allItems.push(...result.value)
         } else {
-          this.logger.warn(`Failed to analyze group: ${result.reason}`)
+          await this.errorLogger.warn(
+            'GitCommitsExtractionService',
+            `Group analysis rejected for "${batch[idx].name}"`,
+            result.reason,
+          )
         }
       }
 
       const processed = Math.min(i + CONCURRENCY_LIMIT, meaningfulGroups.length)
-      onProgress(`Processed ${processed}/${meaningfulGroups.length} groups...`)
+      onProgress(`extracting insights (${processed}/${meaningfulGroups.length} groups)`)
     }
 
     return { items: allItems, stats: { groupsProcessed: meaningfulGroups.length } }
@@ -127,7 +137,7 @@ export class GitCommitsExtractionService {
         .filter((raw) => raw.content.trim().length > 0 && raw.title.trim().length > 0)
         .map((raw) => this.rawToKnowledgeItem(raw, validCategories, now))
     } catch (error) {
-      this.logger.warn(`AI analysis failed for group "${group.name}": ${error}`)
+      await this.errorLogger.warn('GitCommitsExtractionService', `AI analysis failed for group "${group.name}"`, error)
       return []
     }
   }
