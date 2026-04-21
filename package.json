@@ -1,18 +1,46 @@
 {
-  "name": "2context-cli",
+  "name": "2context",
   "version": "0.1.0",
-  "description": "CLI tool to generate context files from git repository commits using AI",
+  "description": "Turn your git history into structured knowledge — for your team and your AI tools.",
   "type": "module",
   "main": "dist/main.js",
   "bin": {
     "2context": "dist/main.js"
   },
+  "license": "MIT",
+  "author": "Fabian Emilius",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fabian-emilius/2context-cli.git"
+  },
+  "homepage": "https://github.com/fabian-emilius/2context-cli#readme",
+  "bugs": {
+    "url": "https://github.com/fabian-emilius/2context-cli/issues"
+  },
+  "preferGlobal": true,
+  "keywords": [
+    "ai",
+    "knowledge-graph",
+    "context-engineering",
+    "developer-tools",
+    "cli"
+  ],
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "nest build",
     "lint": "eslint \"src/**/*.ts\" --fix",
+    "lint:check": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "start:prod": "node dist/main.js",
-    "start:dev": "tsx src/main.ts"
+    "start:dev": "tsx src/main.ts",
+    "prepare": "npm run build",
+    "prepack": "npm run lint:check && npm run format:check",
+    "prepublishOnly": "npm run build && npm run lint:check && npm run format:check"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",
@@ -51,6 +79,5 @@
   },
   "engines": {
     "node": ">=22.0.0"
-  },
-  "private": true
+  }
 }

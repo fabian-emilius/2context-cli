@@ -13,5 +13,6 @@ yarn-error.log*
 .idea/*
 .DS_Store
 
-# 2context analysis state (knowledge files should be committed)
+# 2context internal state — knowledge files under .2context/knowledge/ should be committed
 .2context/state.json
+.2context/sources/
