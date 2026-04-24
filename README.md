@@ -1,6 +1,6 @@
 # 2context
 
-> A self-maintaining, agent-ready knowledge graph for your codebase — built from Markdown, driven by CLI.
+> A self-maintaining, agent-ready knowledge graph for your codebase - built from Markdown, driven by CLI.
 
 2context builds and maintains a structured knowledge base inside your repository. It extracts architectural decisions, coding conventions, recurring patterns, and design choices from your codebase and organizes them as plain Markdown files that both your team and AI coding assistants can read directly.
 

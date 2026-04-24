@@ -1,0 +1,15 @@
+name = "2context-website"
+compatibility_date = "2025-01-01"
+workers_dev = false
+
+routes = [
+  { pattern = "2context.dev/*", zone_name = "2context.dev" }
+]
+
+[assets]
+directory = "./data"
+html_handling = "drop-trailing-slash"
+not_found_handling = "404-page"
+
+[observability]
+enabled = true
