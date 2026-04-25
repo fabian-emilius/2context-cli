@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>2context.dev</title>
-  <meta name="description" content="Turn your git history into a structured knowledge base for your team and AI coding tools." />
+  <title>2context.dev · A file-based knowledge graph for coding agents</title>
+  <meta name="description" content="2context extracts decisions, conventions, and patterns from your git history and writes them as Markdown files coding agents like Claude Code read directly. Plain files, no service." />
   <style>
     :root {
       --bg:        #0c0c0c;
@@ -109,10 +109,10 @@
     .badge span { color: var(--accent); }
 
     h1 {
-      font-size: clamp(26px, 4vw, 38px);
+      font-size: clamp(26px, 4vw, 40px);
       font-weight: 700;
       color: var(--bright);
-      line-height: 1.25;
+      line-height: 1.2;
       letter-spacing: -0.025em;
       margin-bottom: 20px;
     }
@@ -125,8 +125,8 @@
     .hero-sub {
       font-size: 15px;
       color: var(--dim);
-      max-width: 540px;
-      line-height: 1.8;
+      max-width: 580px;
+      line-height: 1.9;
       margin-bottom: 40px;
     }
 
@@ -172,8 +172,88 @@
     .section-desc {
       color: var(--dim);
       font-size: 14px;
-      max-width: 540px;
+      max-width: 560px;
       margin-bottom: 36px;
+      line-height: 1.85;
+    }
+
+    /* problem callouts */
+    .problem-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 0;
+    }
+
+    .problem-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 16px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--red);
+      border-radius: 4px;
+    }
+
+    .problem-item .pi-icon {
+      color: var(--red);
+      font-size: 13px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .problem-item p {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .problem-item p strong { color: var(--bright); }
+
+    /* pipeline steps */
+    .pipeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .pipeline-step {
+      display: flex;
+      gap: 20px;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pipeline-step:last-child { border-bottom: none; }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      background: var(--bg-card);
+      border: 1px solid var(--accent-dim);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-top: 2px;
+    }
+
+    .step-body h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--bright);
+      margin-bottom: 5px;
+    }
+
+    .step-body p {
+      font-size: 13px;
+      color: var(--dim);
+      line-height: 1.65;
     }
 
     /* feature grid */
@@ -237,6 +317,23 @@
     .provider-default { font-size: 12px; color: var(--accent); margin-bottom: 5px; }
     .provider-models  { font-size: 12px; color: var(--muted); line-height: 1.7; }
 
+    /* agent output preview */
+    .code-block {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 20px 22px;
+      font-size: 12px;
+      line-height: 1.75;
+      overflow-x: auto;
+    }
+
+    .code-block .cb-comment { color: var(--muted); }
+    .code-block .cb-head    { color: var(--accent); font-weight: 700; }
+    .code-block .cb-key     { color: var(--blue); }
+    .code-block .cb-val     { color: var(--text); }
+    .code-block .cb-path    { color: var(--yellow); }
+
     /* footer */
     footer {
       padding: 36px 0;
@@ -270,9 +367,10 @@
   <div class="container">
     <div class="nav-logo">2context<span>.dev</span></div>
     <ul class="nav-links">
-      <li><a href="#features">features</a></li>
-      <li><a href="#providers">providers</a></li>
-      <li><a href="#install">install</a></li>
+      <li><a href="#what">what</a></li>
+      <li><a href="#how">how</a></li>
+      <li><a href="#output">output</a></li>
+      <li><a href="#sources">sources</a></li>
       <li><a href="https://github.com/fabian-emilius/2context-cli">github</a></li>
     </ul>
   </div>
@@ -281,13 +379,11 @@
 <!-- hero -->
 <section id="hero">
   <div class="container">
-    <div class="badge">v0.1.0 &nbsp;·&nbsp; <span>MIT</span> &nbsp;·&nbsp; Node &ge; 22</div>
-    <h1>Your codebase,<br /><em>understood.</em></h1>
+    <h1>A file-based knowledge graph<br />for your <em>coding agent.</em></h1>
     <p class="hero-sub">
-      2context reads your git history and uses AI to extract architectural decisions,
-      coding conventions, patterns, and design choices. The result is a structured
-      knowledge base committed to your repo that your team and AI coding assistants
-      can read directly.
+      2context extracts architectural decisions, conventions, and patterns from your git history
+      and writes them as plain Markdown files. Coding agents like Claude Code read those files
+      directly the same way they read any other file in your repo. No MCP server, no daemon, no API.
     </p>
     <div class="install-row">
       <div class="install-block">
@@ -303,77 +399,166 @@
   </div>
 </section>
 
-<!-- features -->
-<section id="features">
+<!-- what -->
+<section id="what">
   <div class="container">
-    <p class="section-label">// what it extracts</p>
-    <h2>Four knowledge categories</h2>
+    <p class="section-label">// what it is</p>
+    <h2>Persistent context, in plain Markdown.</h2>
     <p class="section-desc">
-      Everything extracted is classified and stored as plain Markdown files
-      you can commit alongside your code.
+      Coding agents have no memory between sessions. They re-derive your conventions every time,
+      burning tokens on context that does not change. 2context processes that context once and
+      leaves it on disk where the agent can find it.
+    </p>
+    <div class="problem-list">
+      <div class="problem-item">
+        <span class="pi-icon">→</span>
+        <p><strong>Files, not a service.</strong> Output is a folder of Markdown files committed to your repo. The agent greps and reads them with the tools it already has.</p>
+      </div>
+      <div class="problem-item">
+        <span class="pi-icon">→</span>
+        <p><strong>Knowledge gets reused.</strong> Architectural decisions captured once stay readable forever. Every new session starts with the full graph already on disk.</p>
+      </div>
+      <div class="problem-item">
+        <span class="pi-icon">→</span>
+        <p><strong>Discoverable structure.</strong> Items are classified into architecture, convention, decision, and pattern, then organized into category folders the agent can navigate.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- how it works -->
+<section id="how">
+  <div class="container">
+    <p class="section-label">// how it works</p>
+    <h2>The ingest pipeline</h2>
+    <p class="section-desc">
+      Run <code style="color:var(--text)">2context ingest</code> after merges (or in CI) to keep the graph current.
+      State is tracked per source, so each run only processes commits added since the last cursor.
+    </p>
+
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Fetch new commits</h3>
+          <p>Reads commits since the last cursor (full history on first run). Skips merges, dependency bumps, and formatting-only changes.</p>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Cluster and extract</h3>
+          <p>An LLM groups related commits into feature units, then reads the diffs and extracts knowledge items with category, summary, content, and source provenance.</p>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Write to disk</h3>
+          <p>Items are written to co-located <code style="color:var(--text)">KNOWLEDGE.md</code> files next to the code they describe, and to the central graph at <code style="color:var(--text)">.2context/graph/{category}/</code>.</p>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Rebalance and validate</h3>
+          <p>Overfull category folders get split into subcategories via LLM clustering. Underfull folders get merged. <code style="color:var(--text)">2context validate</code> drops items whose source has disappeared.</p>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Update agent file</h3>
+          <p>A <code style="color:var(--text)">## Knowledge Context</code> section is written into <code style="color:var(--text)">CLAUDE.md</code> or <code style="color:var(--text)">AGENTS.md</code> instructing the agent to read <code style="color:var(--text)">.2context/KNOWLEDGE_GRAPH.md</code> before starting any task.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- output -->
+<section id="output">
+  <div class="container">
+    <p class="section-label">// output</p>
+    <h2>What lands in your repo</h2>
+    <p class="section-desc">
+      Two output planes: co-located files next to the code they describe, and a central graph
+      indexed by a single entry point at <code style="color:var(--text)">.2context/KNOWLEDGE_GRAPH.md</code>.
+    </p>
+
+    <div class="code-block">
+      <span class="cb-comment">your-repo/</span><br />
+      <span class="cb-comment">├──</span> <span class="cb-path">.2context/</span><br />
+      <span class="cb-comment">│   ├──</span> <span class="cb-path">KNOWLEDGE_GRAPH.md</span> &nbsp;&nbsp;<span class="cb-comment"># index the agent reads first</span><br />
+      <span class="cb-comment">│   ├──</span> <span class="cb-path">graph/</span><br />
+      <span class="cb-comment">│   │   ├──</span> <span class="cb-path">architecture/</span> &nbsp;&nbsp;<span class="cb-comment"># split into subfolders when full</span><br />
+      <span class="cb-comment">│   │   ├──</span> <span class="cb-path">convention/</span><br />
+      <span class="cb-comment">│   │   ├──</span> <span class="cb-path">decision/</span><br />
+      <span class="cb-comment">│   │   └──</span> <span class="cb-path">pattern/</span><br />
+      <span class="cb-comment">│   └──</span> <span class="cb-path">sources/git-commits/state.json</span> &nbsp;&nbsp;<span class="cb-comment"># cursor (gitignored)</span><br />
+      <span class="cb-comment">├──</span> <span class="cb-path">src/auth/KNOWLEDGE.md</span> &nbsp;&nbsp;<span class="cb-comment"># co-located items</span><br />
+      <span class="cb-comment">├──</span> <span class="cb-path">src/db/KNOWLEDGE.md</span><br />
+      <span class="cb-comment">└──</span> <span class="cb-path">CLAUDE.md</span> &nbsp;&nbsp;<span class="cb-comment"># auto-updated Knowledge Context section</span>
+    </div>
+
+    <div style="margin-top: 36px;">
+      <div class="grid">
+        <div class="card">
+          <div class="card-tag">architecture</div>
+          <h3>Structural decisions</h3>
+          <p>Module boundaries, data flow, layer responsibilities.</p>
+        </div>
+        <div class="card">
+          <div class="card-tag">convention</div>
+          <h3>Code style rules</h3>
+          <p>Naming, file organization, error handling, import patterns.</p>
+        </div>
+        <div class="card">
+          <div class="card-tag">decision</div>
+          <h3>Technical choices</h3>
+          <p>Why this library, why not that approach, with context intact.</p>
+        </div>
+        <div class="card">
+          <div class="card-tag">pattern</div>
+          <h3>Reusable solutions</h3>
+          <p>Recurring implementation approaches across the codebase.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- sources -->
+<section id="sources">
+  <div class="container">
+    <p class="section-label">// sources</p>
+    <h2>Git today, more later.</h2>
+    <p class="section-desc">
+      The current build ships with one adapter: <code style="color:var(--text)">git-commits</code>.
+      The pipeline is built around a generic adapter interface, so additional sources can feed
+      the same graph without changing how it is consumed.
     </p>
 
     <div class="grid">
       <div class="card">
-        <div class="card-tag">architecture</div>
-        <h3>Structural decisions</h3>
-        <p>Module boundaries, data flow, layer responsibilities, and major structural choices.</p>
+        <div class="card-tag">shipping</div>
+        <h3>git-commits</h3>
+        <p>Reads commits, groups them into feature units, extracts items with traceable source refs (commit SHA, files touched).</p>
       </div>
       <div class="card">
-        <div class="card-tag">convention</div>
-        <h3>Code style rules</h3>
-        <p>API design choices, naming patterns, and team norms that live outside a linter.</p>
+        <div class="card-tag">planned</div>
+        <h3>pull requests</h3>
+        <p>Capture review discussions, rejected approaches, and the decisions that landed in PR descriptions.</p>
       </div>
       <div class="card">
-        <div class="card-tag">decision</div>
-        <h3>Technical choices</h3>
-        <p>A specific decision and its rationale, captured at a point in time with context preserved.</p>
+        <div class="card-tag">planned</div>
+        <h3>issues &amp; ADRs</h3>
+        <p>Pull existing architecture docs, ADRs, and issue threads into the same graph the agent already reads.</p>
       </div>
       <div class="card">
-        <div class="card-tag">pattern</div>
-        <h3>Reusable solutions</h3>
-        <p>Idioms and implementation patterns that appear repeatedly across the codebase.</p>
-      </div>
-    </div>
-
-    <div style="margin-top:48px;">
-      <p class="section-label">// how it works</p>
-      <h2>Self-maintaining by design</h2>
-      <p class="section-desc">
-        Knowledge is built incrementally, kept organized, and validated against the actual code.
-      </p>
-
-      <div class="grid">
-        <div class="card">
-          <div class="card-tag">incremental</div>
-          <h3>Only processes what's new</h3>
-          <p>State is tracked per source. Each run picks up from the last analyzed commit with no redundant work.</p>
-        </div>
-        <div class="card">
-          <div class="card-tag">rebalancing</div>
-          <h3>AI-powered clustering</h3>
-          <p>Automatically splits overfull folders into subcategories and merges underfull ones as the graph grows.</p>
-        </div>
-        <div class="card">
-          <div class="card-tag">validation</div>
-          <h3>Staleness detection</h3>
-          <p>Detects knowledge items whose source has changed or disappeared, and removes them.</p>
-        </div>
-        <div class="card">
-          <div class="card-tag">agent-ready</div>
-          <h3>Injects into CLAUDE.md</h3>
-          <p>Automatically updates your <code style="color:var(--text)">CLAUDE.md</code> or <code style="color:var(--text)">AGENTS.md</code> so AI coding assistants pick up the full knowledge graph.</p>
-        </div>
-        <div class="card">
-          <div class="card-tag">co-located</div>
-          <h3>Lives next to your code</h3>
-          <p>KNOWLEDGE.md files are placed alongside the code they describe, not hidden in a separate docs folder.</p>
-        </div>
-        <div class="card">
-          <div class="card-tag">plain markdown</div>
-          <h3>No lock-in</h3>
-          <p>All output is plain Markdown committed to your repo. No external service, no proprietary format.</p>
-        </div>
+        <div class="card-tag">planned</div>
+        <h3>your sources</h3>
+        <p>The adapter contract is small. Anything that can produce material units with provenance can plug in.</p>
       </div>
     </div>
   </div>
@@ -382,13 +567,9 @@
 <!-- providers -->
 <section id="providers">
   <div class="container">
-    <p class="section-label">// ai providers</p>
+    <p class="section-label">// llm providers</p>
     <h2>Bring your own model</h2>
-    <p class="section-desc">
-      Works with Anthropic, OpenAI, and Google. Configure via environment variables or an
-      interactive wizard on first run. Keys are stored in
-      <code style="color:var(--text)">~/.2context/keys.json</code> (chmod 600).
-    </p>
+    <p class="section-desc">Configure via env vars or the interactive wizard on first run. Keys stored in <code style="color:var(--text)">~/.2context/keys.json</code> (chmod 600).</p>
 
     <div class="provider-grid">
       <div class="provider">
@@ -413,10 +594,9 @@
 <!-- install -->
 <section id="install" style="text-align:center;">
   <div class="container">
-    <h2 style="margin-bottom:10px;">Get started</h2>
-    <p style="color:var(--dim); margin-bottom:32px; font-size:13px;">
-      Works with any git repository. Node.js &ge; 22 required.
-    </p>
+    <p class="section-label" style="text-align:center;">// get started</p>
+    <h2 style="margin-bottom:12px;">Install and run</h2>
+    <p style="color:var(--dim); margin-bottom:32px; font-size:13px;">Works in any git repository. Node.js &ge; 22 required.</p>
     <div style="display:inline-flex; flex-direction:column; gap:10px; align-items:flex-start;">
       <div class="install-block">
         <span class="prompt">$</span>
@@ -431,6 +611,8 @@
       Full docs on <a href="https://github.com/fabian-emilius/2context-cli">GitHub</a>
       &nbsp;&middot;&nbsp;
       <a href="https://www.npmjs.com/package/2context">npm</a>
+      &nbsp;&middot;&nbsp;
+      <a href="https://github.com/fabian-emilius/2context-cli/issues">report an issue</a>
     </p>
   </div>
 </section>

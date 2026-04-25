@@ -1,12 +1,6 @@
 # 2context
 
-> A self-maintaining, agent-ready knowledge graph for your codebase - built from Markdown, driven by CLI.
-
-2context builds and maintains a structured knowledge base inside your repository. It extracts architectural decisions, coding conventions, recurring patterns, and design choices from your codebase and organizes them as plain Markdown files that both your team and AI coding assistants can read directly.
-
-The knowledge graph rebalances itself automatically as it grows, stays accurate through built-in validation, and is designed to plug directly into AI agent context files like `CLAUDE.md` or `AGENTS.md`.
-
-Git commit history is the first built-in data source — more adapters are planned.
+> A file-based knowledge graph for coding agents. Extracts decisions, conventions, and patterns from your git history and writes them as plain Markdown files that agents like Claude Code read directly.
 
 [![npm version](https://img.shields.io/npm/v/2context.svg)](https://www.npmjs.com/package/2context)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -14,27 +8,24 @@ Git commit history is the first built-in data source — more adapters are plann
 
 ---
 
-## Core concepts
+## What it is
 
-### Knowledge graph
-Everything 2context extracts lives as plain Markdown files organized into four categories:
+A CLI that builds and maintains a Markdown knowledge graph in your repo.
 
-- **Architecture** — Module boundaries, data flow, structural decisions
-- **Convention** — Code style and API design choices that aren't in a linter
-- **Decision** — A specific technical choice and its rationale, captured at a point in time
-- **Pattern** — A reusable solution or idiom used repeatedly across the codebase
+Coding agents are stateless: they re-derive your conventions every session. 2context processes that context once (currently from your git commit history), classifies it, and writes it to disk where the agent can grep and read it with the tools it already has. No MCP server, no daemon, no API.
 
-### Two planes of output
-- **Co-located files** — `KNOWLEDGE.md` files placed directly alongside the code they describe (e.g. `src/api/KNOWLEDGE.md`)
-- **Central graph** — Everything organized under `.2context/knowledge/` by category and subcategory
+Output is plain files committed alongside your code:
 
-### Self-maintaining
-- **Incremental** — Only processes what's new since the last run
-- **Rebalancing** — Automatically splits overfull folders into subcategories and merges underfull ones using AI clustering
-- **Validation** — Detects stale knowledge items as your code evolves and removes them
+* **`.2context/KNOWLEDGE_GRAPH.md`** is the index. The agent is instructed to read this first.
+* **`.2context/graph/{category}/`** holds the central items, organized into four categories: `architecture`, `convention`, `decision`, `pattern`.
+* **`KNOWLEDGE.md`** files sit next to the source folders they describe (e.g. `src/auth/KNOWLEDGE.md`).
+* A `## Knowledge Context` section is added to `CLAUDE.md` or `AGENTS.md` pointing the agent at the index.
 
-### Agent-ready
-2context injects a Knowledge Context section into `CLAUDE.md` or `AGENTS.md` so AI coding assistants pick up the full knowledge graph automatically. All output is plain Markdown — no special tooling required to read it.
+---
+
+## Sources
+
+The current build ships with **one adapter: `git-commits`**. The pipeline is built around a generic adapter interface, so additional sources can feed the same graph without changing how the agent consumes it. Pull requests, ADRs, issue threads, and custom sources are on the roadmap.
 
 ---
 
@@ -42,62 +33,27 @@ Everything 2context extracts lives as plain Markdown files organized into four c
 
 ```bash
 npm install -g 2context
-
 cd /path/to/your-repo
 2context init
 ```
 
-On first run, 2context will walk you through choosing an AI provider (Anthropic, OpenAI, or Google) and entering your API key. Keys are stored in `~/.2context/keys.json` (chmod 600).
+First run walks you through provider selection (Anthropic, OpenAI, or Google) and API key entry, then ingests your full history. Keys are stored in `~/.2context/keys.json` (chmod 600).
+
+After the first run, use `2context ingest` to pick up new commits incrementally.
 
 ---
 
-## Installation
+## How it works
 
-**Requirements:** Node.js ≥ 22.0.0
+Each `ingest` run goes through five phases:
 
-```bash
-# Install globally
-npm install -g 2context
+1. **Fetch.** Read commits since the last cursor (or all commits with `--force`). Skip merges, dependency bumps, and formatting-only diffs.
+2. **Cluster and extract.** An LLM groups related commits into feature units, then reads the diffs and produces `KnowledgeItem`s with category, summary, content, and source provenance (commit SHAs, files touched).
+3. **Write.** Items go to co-located `KNOWLEDGE.md` files (when scoped to a folder) and to `.2context/graph/{category}[/{subcategory}]/{slug}.md` (when general).
+4. **Rebalance.** Overfull category folders (>15 items) get split into subcategories via LLM clustering. Underfull folders (<3 items) get merged back up. Recursive.
+5. **Update agent file.** The `## Knowledge Context` section in `CLAUDE.md` / `AGENTS.md` is regenerated, telling the agent to read `.2context/KNOWLEDGE_GRAPH.md` before starting any task.
 
-# Or run without installing
-npx 2context init
-```
-
----
-
-## Configuration
-
-Configuration is resolved in this order (highest priority first):
-
-| Source | Description |
-|--------|-------------|
-| Environment variables | `TWOCONTEXT_PROVIDER`, `ANTHROPIC_API_KEY`, etc. |
-| Config file | `~/.2context/keys.json` (created on first run) |
-| Interactive wizard | Shown automatically when config is missing |
-
-### Environment variables
-
-```bash
-# Select provider
-export TWOCONTEXT_PROVIDER=anthropic   # anthropic | openai | google
-
-# API key — set the one matching your provider
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export GOOGLE_GENERATIVE_AI_API_KEY=...
-
-# Optional overrides
-export TWOCONTEXT_MODEL=anthropic/claude-opus-4-20250514
-export TWOCONTEXT_CI=true   # Force plain-text output (no spinners/prompts)
-```
-
-### Supported providers and models
-
-| Provider | Default model | Other options |
-|----------|--------------|---------------|
-| **Anthropic** | `claude-sonnet-4-20250514` | `claude-haiku-4-5`, `claude-opus-4-20250514` |
-| **OpenAI** | `gpt-4o` | `gpt-4o-mini`, `o3-mini` |
-| **Google** | `gemini-2.5-flash` | `gemini-2.5-pro`, `gemini-2.0-flash` |
+State for each adapter lives in `.2context/sources/{adapter-id}/state.json` so the next run only processes what is new.
 
 ---
 
@@ -105,76 +61,45 @@ export TWOCONTEXT_CI=true   # Force plain-text output (no spinners/prompts)
 
 ### `2context init`
 
-First-time setup: configures your provider and runs a full initial analysis.
+Configure the AI provider, scaffold `.2context/`, and run the first ingest.
 
 ```
-2context init [options]
-
-  -b, --branch <name>   Branch to analyze (default: main or master)
-  -v, --verbose         Verbose output
+-b, --branch <name>   Branch to analyze (default: main/master)
+-v, --verbose         Verbose output
 ```
 
 ### `2context ingest`
 
-Run the ingestion pipeline. Incremental by default — only processes what's new since the last run.
+Run the ingestion pipeline. Incremental by default.
 
 ```
-2context ingest [options]
-
-  -b, --branch <name>       Branch to analyze
-  -v, --verbose             Verbose output
-  -f, --force               Wipe and reprocess everything from scratch
-  -s, --source <id>         Only run a specific source adapter (e.g. git-commits)
-      --no-rebalance        Skip the post-ingest rebalance step
+-b, --branch <name>   Branch to analyze
+-f, --force           Wipe items and reprocess from scratch
+-s, --source <id>     Run a single adapter only (e.g. git-commits)
+    --no-rebalance    Skip the post-ingest rebalance step
+-v, --verbose         Verbose output
 ```
 
 ### `2context status`
 
-Show the current configuration, item counts, and source cursor positions.
-
-```
-2context status
-```
-
-Example output:
-```
-Configuration
-  Provider:  anthropic
-  Model:     claude-sonnet-4-20250514
-
-Items by category
-  Architecture:   12
-  Convention:      8
-  Decision:        5
-  Pattern:        11
-  Total:          36
-
-Co-located files
-  src/api/KNOWLEDGE.md          (7 items)
-  src/auth/KNOWLEDGE.md         (4 items)
-  src/database/KNOWLEDGE.md     (5 items)
-```
+Print configuration, item counts per category, source cursor positions, and co-located files.
 
 ### `2context validate`
 
-Check stored knowledge items against their sources. Removes items whose source no longer exists or has changed beyond a staleness threshold.
+Check stored items against their sources. For `git-commits`, this verifies referenced files still exist and source commits are reachable. Items get marked stale on a miss and removed after two consecutive stale verdicts. Rebuilds the index on completion.
 
 ```
-2context validate [options]
-
-  --dry-run      Show what would be removed without changing anything
-  -v, --verbose  Print the verdict for every item
+--dry-run    Report removals without writing
+-v, --verbose
 ```
 
 ### `2context rebalance`
 
-Reorganize the knowledge graph: split overfull category folders into subcategories, merge underfull ones.
+Reorganize the graph: split overfull category folders into subcategories, merge underfull ones. This already runs automatically after each ingest; the standalone command is for manual reorganization.
 
 ```
-2context rebalance [options]
-
-  --dry-run      Show proposed changes without moving files
-  -v, --verbose  Print a summary for each move
+--dry-run    Show proposed moves without changing anything
+-v, --verbose
 ```
 
 ---
@@ -184,76 +109,63 @@ Reorganize the knowledge graph: split overfull category folders into subcategori
 ```
 your-repo/
 ├── .2context/
-│   ├── knowledge/
-│   │   ├── KNOWLEDGE_GRAPH.md         # Full index of all items (title + summary)
+│   ├── KNOWLEDGE_GRAPH.md           # Index. Agent reads this first.
+│   ├── graph/
 │   │   ├── architecture/
-│   │   │   ├── api-layer.md
-│   │   │   └── database-access.md
+│   │   │   └── api-design/          # Subcategory created by rebalance
+│   │   │       └── rest-versioning.md
 │   │   ├── convention/
-│   │   │   └── error-handling.md
 │   │   ├── decision/
-│   │   │   └── graphql-adoption.md
 │   │   └── pattern/
-│   │       └── repository-pattern.md
-│   └── state.json                     # Internal cursor state (not committed)
+│   └── sources/
+│       └── git-commits/state.json   # Cursor (gitignored)
 ├── src/
-│   ├── api/
-│   │   ├── routes.ts
-│   │   └── KNOWLEDGE.md               # Co-located knowledge for this folder
-│   └── database/
-│       ├── client.ts
+│   ├── auth/
+│   │   ├── KNOWLEDGE.md             # Co-located items for this folder
+│   │   └── jwt.ts
+│   └── db/
 │       └── KNOWLEDGE.md
-└── CLAUDE.md  (or AGENTS.md)          # Automatically updated with Knowledge Context
+└── CLAUDE.md                        # Auto-updated Knowledge Context section
 ```
 
-### What to commit
-
-| Path | Commit? |
-|------|---------|
-| `.2context/knowledge/` | **Yes** — this is the knowledge base |
-| `src/**/KNOWLEDGE.md` | **Yes** — co-located knowledge |
-| `CLAUDE.md` / `AGENTS.md` | **Yes** — agent context |
-| `.2context/state.json` | No — internal cursor state |
-| `.2context/sources/` | No — per-adapter cursor state |
-
-The included `.gitignore` already excludes the internal state files.
+**Commit:** `.2context/KNOWLEDGE_GRAPH.md`, `.2context/graph/`, `src/**/KNOWLEDGE.md`, `CLAUDE.md` / `AGENTS.md`.
+**Don't commit:** `.2context/sources/` (cursor state, already gitignored).
 
 ---
 
-## Data sources
+## Configuration
 
-2context uses an **adapter system** to pull knowledge from different sources. Each adapter is responsible for fetching material, grouping it into logical units, and extracting knowledge items.
+Resolution order: env vars → `~/.2context/keys.json` → interactive wizard.
 
-### git-commits (built-in)
+```bash
+export TWOCONTEXT_PROVIDER=anthropic        # anthropic | openai | google
+export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export GOOGLE_GENERATIVE_AI_API_KEY=...
 
-Analyzes your git commit history:
+# Optional
+export TWOCONTEXT_MODEL=anthropic/claude-opus-4-20250514
+export TWOCONTEXT_CI=true                   # plain-text output, no prompts
+```
 
-1. **Fetch** — Reads commits since the last run (incremental) or all commits (`--force`)
-2. **Group** — Clusters commits into logical feature groups (detects PR boundaries, co-changed files, conventional commit prefixes)
-3. **Extract** — Sends each group's diffs to the LLM and extracts validated knowledge items
-4. **Write** — Saves items to co-located `KNOWLEDGE.md` files and the central graph
-
-Skips trivial commits (dependency bumps, merge commits, formatting-only changes). Processes up to 1000 commits per run. All LLM calls use exponential backoff retry.
-
-### More adapters coming
-
-The adapter interface is designed to support additional sources — pull requests, GitHub Issues, architecture docs, and more. Contributions welcome.
+| Provider | Default | Other models |
+|----------|---------|--------------|
+| Anthropic | `claude-sonnet-4-20250514` | `claude-haiku-4-5`, `claude-opus-4-20250514` |
+| OpenAI | `gpt-4o` | `gpt-4o-mini`, `o3-mini` |
+| Google | `gemini-2.5-flash` | `gemini-2.5-pro`, `gemini-2.0-flash` |
 
 ---
 
 ## CI usage
 
-2context works headlessly in CI environments. Set your API key as a secret and run `2context ingest` after each merge to keep the knowledge graph up to date.
-
 ```yaml
-# GitHub Actions example
 - name: Update knowledge graph
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   run: |
     npm install -g 2context
     2context ingest
-    git add .2context/knowledge src/**/KNOWLEDGE.md CLAUDE.md
+    git add .2context CLAUDE.md src/**/KNOWLEDGE.md
     git commit -m "chore: update knowledge graph" || true
     git push
 ```
@@ -262,27 +174,17 @@ The adapter interface is designed to support additional sources — pull request
 
 ## Contributing
 
-Pull requests are welcome. Please open an issue first for significant changes.
-
 ```bash
 git clone https://github.com/fabian-emilius/2context-cli
 cd 2context-cli
 npm install
-
-# Dev mode (runs from source)
-npm run start:dev -- init
-
-# Build and run compiled output
-npm run build
-npm run start:prod -- status
-
-# Lint and format
-npm run lint
-npm run format
+npm run start:dev -- init        # dev mode (tsx)
+npm run build && npm run start:prod -- status
+npm run lint && npm run format
 ```
+
+Pull requests welcome. Open an issue first for significant changes, especially new adapters.
 
 ---
 
-## License
-
-[MIT](./LICENSE) — Copyright (c) 2026 Fabian Emilius
+[MIT](./LICENSE) · Copyright (c) 2026 Fabian Emilius
