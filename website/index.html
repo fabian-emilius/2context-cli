@@ -402,25 +402,28 @@
 <!-- what -->
 <section id="what">
   <div class="container">
-    <p class="section-label">// what it is</p>
-    <h2>Persistent context, in plain Markdown.</h2>
+    <p class="section-label">// not just a docs folder</p>
+    <h2>What you can't write by hand.</h2>
     <p class="section-desc">
-      Coding agents have no memory between sessions. They re-derive your conventions every time,
-      burning tokens on context that does not change. 2context processes that context once and
-      leaves it on disk where the agent can find it.
+      Markdown for agent context is not new. What is new is what ends up in those files,
+      how they stay organized, and how the agent picks them up without your prompting.
     </p>
     <div class="problem-list">
       <div class="problem-item">
         <span class="pi-icon">→</span>
-        <p><strong>Files, not a service.</strong> Output is a folder of Markdown files committed to your repo. The agent greps and reads them with the tools it already has.</p>
+        <p><strong>Intent extracted from commits.</strong> The <em>why</em> behind decisions (why this DB, why that boundary) gets reconstructed from diffs and commit messages, including reasoning that never made it into a doc anyone bothered to write.</p>
       </div>
       <div class="problem-item">
         <span class="pi-icon">→</span>
-        <p><strong>Knowledge gets reused.</strong> Architectural decisions captured once stay readable forever. Every new session starts with the full graph already on disk.</p>
+        <p><strong>Self-organizing graph.</strong> As items pile up, LLM clustering splits overfull category folders into subfolders and merges underfull ones. The structure stays navigable instead of decaying into a flat dump.</p>
       </div>
       <div class="problem-item">
         <span class="pi-icon">→</span>
-        <p><strong>Discoverable structure.</strong> Items are classified into architecture, convention, decision, and pattern, then organized into category folders the agent can navigate.</p>
+        <p><strong>Auto-discovered by the agent.</strong> A <code>## Knowledge Context</code> block is written into <code>CLAUDE.md</code> / <code>AGENTS.md</code> instructing the agent to read the index before any task. No prompt engineering required.</p>
+      </div>
+      <div class="problem-item">
+        <span class="pi-icon">→</span>
+        <p><strong>Validated, not just appended.</strong> Items are tied to source provenance (commits, files). When the underlying code disappears, <code>2context validate</code> drops the stale item so the graph does not drift from reality.</p>
       </div>
     </div>
   </div>
