@@ -18,16 +18,16 @@ export const AI_PROVIDER_ENV_KEYS: Record<AiProvider, string> = {
 
 export const AI_PROVIDER_MODELS: Record<AiProvider, string[]> = {
   [AiProvider.Anthropic]: [
-    'anthropic/claude-sonnet-4-20250514',
+    'anthropic/claude-sonnet-4-6',
     'anthropic/claude-haiku-4-5',
-    'anthropic/claude-opus-4-20250514',
+    'anthropic/claude-opus-4-7',
   ],
   [AiProvider.OpenAI]: ['openai/gpt-4o', 'openai/gpt-4o-mini', 'openai/o3-mini'],
   [AiProvider.Google]: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.0-flash'],
 }
 
 export const DEFAULT_MODELS: Record<AiProvider, string> = {
-  [AiProvider.Anthropic]: 'anthropic/claude-sonnet-4-20250514',
+  [AiProvider.Anthropic]: 'anthropic/claude-sonnet-4-6',
   [AiProvider.OpenAI]: 'openai/gpt-4o',
   [AiProvider.Google]: 'google/gemini-2.5-flash',
 }

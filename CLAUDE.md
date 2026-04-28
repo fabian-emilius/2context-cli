@@ -60,3 +60,15 @@ Composable prompt builders: `TextPrompt` (sections with XML tags), `SystemPrompt
 - No semicolons, trailing commas, single quotes, 2-space indent, 120 char print width (Prettier)
 - ESLint enforces type-only imports as separate statements and sorted imports (simple-import-sort)
 - NestJS patterns: dependency injection, decorators, modular architecture
+
+## Knowledge Context
+
+**Before starting any task, read `.2context/KNOWLEDGE_GRAPH.md` first.**
+
+That file is the index of everything this project has learned:
+- Co-located `KNOWLEDGE.md` files next to the code they describe (architectural decisions, pitfalls, conventions scoped to a directory)
+- A central knowledge graph under `.2context/graph/` organized by category: architecture, convention, decision, pattern
+
+Always check whether relevant knowledge already exists before making architectural decisions or implementing patterns. If you discover something that should be documented, mention it in your response so it can be captured by running `2context ingest`.
+
+_Managed by 2context. Last updated: 2026-04-28T07:24:15.534Z · 0 items, 0 co-located files._

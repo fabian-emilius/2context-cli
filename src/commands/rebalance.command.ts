@@ -3,8 +3,8 @@ import { Command, Option } from 'nest-commander'
 
 import { BaseCommand } from '@/helpers/base-command.js'
 import { ConfigService } from '@/modules/config/config.service.js'
+import { IndexService } from '@/modules/index/index.service.js'
 import { PipelineService } from '@/modules/pipeline/pipeline.service.js'
-import { RebalanceService } from '@/modules/rebalance/rebalance.service.js'
 import { TerminalUI } from '@/ui/terminal-ui.js'
 
 interface RebalanceOptions {
@@ -14,7 +14,9 @@ interface RebalanceOptions {
 
 @Command({
   name: 'rebalance',
-  description: 'Split overfull category folders and merge underfull subcategories in the central graph',
+  description:
+    'Sweep the central knowledge tree: re-evaluate every leaf and branch, ' +
+    're-cluster overfull nodes, regenerate node summaries.',
 })
 export class RebalanceCommand extends BaseCommand {
   private readonly ui = new TerminalUI()
@@ -22,7 +24,7 @@ export class RebalanceCommand extends BaseCommand {
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(PipelineService) private readonly pipeline: PipelineService,
-    @Inject(RebalanceService) private readonly rebalance: RebalanceService,
+    @Inject(IndexService) private readonly indexService: IndexService,
   ) {
     super()
   }
@@ -34,12 +36,14 @@ export class RebalanceCommand extends BaseCommand {
     const { ctx, state } = await this.pipeline.buildContext(this.ui)
 
     const spinner = this.ui.spinner(options?.dryRun ? 'Rebalancing (dry run)...' : 'Rebalancing...')
-    const result = await this.rebalance.run(state, ctx.repoRoot, options?.dryRun ?? false)
+    const result = await this.indexService.runFullRebalance(state, ctx.repoRoot, options?.dryRun ?? false, (msg) =>
+      spinner.update(msg),
+    )
     spinner.succeed('Rebalance complete')
 
     this.ui.divider('Results')
     this.ui.keyValue([
-      ['Moves', String(result.moves)],
+      ['Inserts', String(result.inserts)],
       ['Splits', String(result.splits)],
       ['Merges', String(result.merges)],
     ])
@@ -51,7 +55,7 @@ export class RebalanceCommand extends BaseCommand {
       }
     }
 
-    if (!options?.dryRun && result.moves > 0) {
+    if (!options?.dryRun && result.splits + result.merges > 0) {
       await this.pipeline.finalize(this.ui, state, ctx.repoRoot)
     }
 

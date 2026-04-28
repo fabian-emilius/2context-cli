@@ -148,7 +148,7 @@ export class GitCommitsExtractionService {
     const id = slugify(raw.title)
     const sources = raw.sourceCommitHashes.map((hash) => `${ADAPTER_ID}:${hash}`)
     const relatedFiles = this.scopeRelatedFiles(raw)
-    const writtenPath = this.computeInitialWrittenPath(raw, category, id)
+    const writtenPath = this.computeInitialWrittenPath(raw)
 
     return {
       id,
@@ -161,6 +161,8 @@ export class GitCommitsExtractionService {
       sources,
       relatedFiles,
       writtenPath,
+      // General-scope items receive their leafId from the IndexService at insert time.
+      leafId: '',
       firstSeen: timestamp,
       lastValidated: timestamp,
       staleCount: 0,
@@ -174,11 +176,11 @@ export class GitCommitsExtractionService {
   }
 
   /**
-   * Compute the initial `writtenPath` based on scope + category.
-   * Rebalance may later move general-scope items into subcategories.
-   * Path is relative to the repository root.
+   * Compute the initial `writtenPath` for co-located items only. General-scope
+   * items have their path assigned later by the IndexService once they are
+   * routed to a leaf.
    */
-  private computeInitialWrittenPath(raw: RawInsight, category: KnowledgeCategory, id: string): string {
+  private computeInitialWrittenPath(raw: RawInsight): string {
     if (raw.scope.type === 'file') {
       const dir = path.dirname(raw.scope.filePath)
       return path.join(dir, 'KNOWLEDGE.md')
@@ -188,7 +190,7 @@ export class GitCommitsExtractionService {
       return path.join(raw.scope.folderPath, 'KNOWLEDGE.md')
     }
 
-    return path.join('.2context', 'graph', category, `${id}.md`)
+    return ''
   }
 
   private async getGroupDiffs(git: GitService, group: FeatureGroup): Promise<CommitDiff[]> {

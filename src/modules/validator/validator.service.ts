@@ -4,7 +4,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import type { AdapterContext, KnowledgeItem, ValidationVerdict } from '@/modules/adapters/adapter.types.js'
 import { AdaptersRegistry } from '@/modules/adapters/adapters.registry.js'
-import { StateService } from '@/modules/state/state.service.js'
+import { IndexService } from '@/modules/index/index.service.js'
 import type { GlobalState } from '@/modules/state/state.types.js'
 import { WriterService } from '@/modules/writer/writer.service.js'
 
@@ -30,8 +30,8 @@ export class ValidatorService {
 
   constructor(
     @Inject(AdaptersRegistry) private readonly registry: AdaptersRegistry,
-    @Inject(StateService) private readonly stateService: StateService,
     @Inject(WriterService) private readonly writer: WriterService,
+    @Inject(IndexService) private readonly indexService: IndexService,
   ) {}
 
   /**
@@ -103,11 +103,12 @@ export class ValidatorService {
   private async removeItems(state: GlobalState, repoRoot: string, toRemove: KnowledgeItem[]): Promise<void> {
     const removeIds = new Set(toRemove.map((i) => i.id))
 
-    // Group co-located removals by host file so we can rewrite each file once.
+    // Co-located removals are batched per host file; general-scope removals go
+    // through the IndexService so the leaf is updated and pruned consistently.
     const coLocatedByHost = new Map<string, KnowledgeItem[]>()
     for (const item of toRemove) {
       if (item.scope.type === 'general') {
-        await this.writer.removeItem(item, repoRoot)
+        await this.indexService.removeItem(state, repoRoot, item.id)
       } else {
         const list = coLocatedByHost.get(item.writtenPath) ?? []
         list.push(item)
@@ -115,9 +116,6 @@ export class ValidatorService {
       }
     }
 
-    // After removing from state, rewrite each affected co-located file from the
-    // remaining items that still point at it. This keeps the file in sync even
-    // when multiple items share a host.
     state.items = state.items.filter((i) => !removeIds.has(i.id))
 
     for (const [hostPath] of coLocatedByHost) {
@@ -125,12 +123,10 @@ export class ValidatorService {
       await this.writer.rewriteCoLocatedFromItems(repoRoot, hostPath, remaining)
     }
 
-    // Clean up any central graph dirs emptied by removals.
     await this.pruneEmptyGraphDirs(repoRoot)
   }
 
   private async pruneEmptyGraphDirs(repoRoot: string): Promise<void> {
-    // Best-effort cleanup; failures are ignored.
     const fs = await import('node:fs/promises')
     const graphRoot = path.join(repoRoot, '.2context', 'graph')
 

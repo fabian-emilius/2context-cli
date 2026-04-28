@@ -5,13 +5,7 @@ import { Injectable } from '@nestjs/common'
 import { FileSystem } from '@/helpers/fs.js'
 import type { KnowledgeItem } from '@/modules/adapters/adapter.types.js'
 import { KNOWLEDGE_CATEGORY_LABELS, ROOT_CATEGORIES } from '@/modules/adapters/adapter.types.js'
-import type { GlobalState } from '@/modules/state/state.types.js'
-
-interface SubcategoryNode {
-  segment: string
-  items: KnowledgeItem[]
-  children: Map<string, SubcategoryNode>
-}
+import type { GlobalState, GraphNode } from '@/modules/state/state.types.js'
 
 export interface SourceSummary {
   id: string
@@ -24,10 +18,18 @@ export interface SourceSummary {
 
 /**
  * Regenerates `.2context/KNOWLEDGE_GRAPH.md` from the global state.
- * The file is the single entry point an agent reads before starting a task.
+ *
+ * The output is intentionally shallow: a project blurb, then a top-level
+ * outline of co-located dirs, then each root category's first 1-2 levels of
+ * tree with summaries. Agents drill deeper by reading the per-folder
+ * `_index.md` files — they should not need to read the entire graph from this
+ * one file.
  */
 @Injectable()
 export class GraphWriterService {
+  /** How many tree levels to render under each root category. */
+  private static readonly TREE_DEPTH_LIMIT = 2
+
   public async rebuild(
     repoRoot: string,
     targetPath: string,
@@ -42,22 +44,24 @@ export class GraphWriterService {
   private render(state: GlobalState, sources: SourceSummary[]): string {
     const totalItems = state.items.length
     const coLocated = state.items.filter((i) => i.scope.type !== 'general')
-    const central = state.items.filter((i) => i.scope.type === 'general')
 
     const coLocatedDirs = this.groupCoLocated(coLocated)
-    const categoryCount = new Set(central.map((i) => i.category)).size
+    const totalLeafFiles = Object.values(state.graphTree.nodes).filter((n) => n.kind === 'leaf').length
 
     let out = ''
     out += `# Knowledge Graph\n\n`
-    out += `_Last updated: ${state.lastRunDate} · ${totalItems} items · ${coLocatedDirs.size} co-located files · ${categoryCount} categor${categoryCount === 1 ? 'y' : 'ies'}_\n\n`
-    out += `> **Agents:** this is the entry point. Scan the headings below to find relevant knowledge before starting work. If you discover something new that belongs here, mention it so it can be captured via \`2context ingest\`.\n\n`
+    out += `_Last updated: ${state.lastRunDate} · ${totalItems} items · ${totalLeafFiles} central leaf file${totalLeafFiles === 1 ? '' : 's'} · ${coLocatedDirs.size} co-located file${coLocatedDirs.size === 1 ? '' : 's'}_\n\n`
+    out +=
+      `> **Agents:** start here. Each category below points at a folder under \`.2context/graph/\`. ` +
+      `Open the \`_index.md\` inside any folder to see its child summaries and decide where to descend. ` +
+      `Leaf \`.md\` files contain the actual findings, grouped by topic.\n\n`
 
     if (state.projectSummary) {
       out += `## Project summary\n${state.projectSummary}\n\n`
     }
 
     out += this.renderCoLocated(coLocatedDirs)
-    out += this.renderCentral(central)
+    out += this.renderCentral(state)
     out += this.renderSources(sources)
 
     return out
@@ -91,98 +95,63 @@ export class GraphWriterService {
     return out
   }
 
-  private renderCentral(items: KnowledgeItem[]): string {
+  private renderCentral(state: GlobalState): string {
     let out = '## Central graph\n\n'
+    out += 'Each root category is a self-balancing tree. Open `_index.md` inside any folder for child summaries.\n\n'
 
     for (const category of ROOT_CATEGORIES) {
-      const categoryItems = items.filter((i) => i.category === category)
-      if (categoryItems.length === 0) continue
+      const rootId = state.graphTree.rootIds[String(category)]
+      const root = rootId ? state.graphTree.nodes[rootId] : undefined
+      if (!root) continue
 
+      const itemCount = this.countItemsInSubtree(state, root)
       const label = KNOWLEDGE_CATEGORY_LABELS[category]
-      out += `### ${label.toLowerCase()} (${categoryItems.length} items)\n`
-
-      const tree = this.buildSubcategoryTree(categoryItems)
-      out += this.renderSubcategoryTree(tree, 0)
+      out += `### ${label.toLowerCase()} (${itemCount} item${itemCount === 1 ? '' : 's'})\n`
+      if (root.summary) {
+        out += `${root.summary}\n\n`
+      } else {
+        out += `_No knowledge yet._\n\n`
+      }
+      out += this.renderChildren(state, root, 0)
       out += '\n'
     }
 
     return out
   }
 
-  private buildSubcategoryTree(items: KnowledgeItem[]): Map<string, SubcategoryNode> {
-    const root = new Map<string, SubcategoryNode>()
-    // Use a sentinel segment '' for the flat (no subcategory) bucket under each category.
-    const flatBucket: SubcategoryNode = { segment: '', items: [], children: new Map() }
+  private renderChildren(state: GlobalState, node: GraphNode, depth: number): string {
+    if (depth >= GraphWriterService.TREE_DEPTH_LIMIT) return ''
+    const childIds = node.childIds ?? []
+    if (childIds.length === 0) return ''
 
-    for (const item of items) {
-      if (item.subcategoryPath.length === 0) {
-        flatBucket.items.push(item)
-        continue
-      }
-
-      let currentChildren = root
-      let currentNode: SubcategoryNode | null = null
-
-      for (const segment of item.subcategoryPath) {
-        let next = currentChildren.get(segment)
-        if (!next) {
-          next = { segment, items: [], children: new Map() }
-          currentChildren.set(segment, next)
-        }
-        currentNode = next
-        currentChildren = next.children
-      }
-
-      if (currentNode) currentNode.items.push(item)
-    }
-
-    if (flatBucket.items.length > 0) {
-      root.set('', flatBucket)
-    }
-
-    return root
-  }
-
-  private renderSubcategoryTree(tree: Map<string, SubcategoryNode>, depth: number): string {
     let out = ''
-    const entries = [...tree.entries()].sort(([a], [b]) => {
-      // Flat bucket always last so named subcategories are listed first
-      if (a === '' && b !== '') return 1
-      if (b === '' && a !== '') return -1
-      return a.localeCompare(b)
-    })
+    const indent = '  '.repeat(depth)
 
-    for (const [segment, node] of entries) {
-      const indent = '  '.repeat(depth)
-      if (segment) {
-        const count = this.countItemsRecursive(node)
-        out += `${indent}- **${segment}/** (${count})\n`
-        out += this.renderSubcategoryTree(node.children, depth + 1)
-        for (const item of node.items) {
-          out += this.renderItemLine(item, depth + 1)
-        }
-      } else {
-        for (const item of node.items) {
-          out += this.renderItemLine(item, depth)
-        }
+    for (const childId of childIds) {
+      const child = state.graphTree.nodes[childId]
+      if (!child) continue
+
+      const filename = child.kind === 'leaf' ? `${child.segment}.md` : `${child.segment}/`
+      const itemCount = this.countItemsInSubtree(state, child)
+      const summary = child.summary || '_(no summary yet)_'
+      out += `${indent}- **\`${filename}\`** (${itemCount}) — ${summary}\n`
+
+      if (child.kind === 'branch') {
+        out += this.renderChildren(state, child, depth + 1)
       }
     }
 
     return out
   }
 
-  private countItemsRecursive(node: SubcategoryNode): number {
-    let count = node.items.length
-    for (const child of node.children.values()) {
-      count += this.countItemsRecursive(child)
+  private countItemsInSubtree(state: GlobalState, node: GraphNode): number {
+    if (node.kind === 'leaf') return node.itemIds?.length ?? 0
+    let total = 0
+    for (const childId of node.childIds ?? []) {
+      const child = state.graphTree.nodes[childId]
+      if (child) total += this.countItemsInSubtree(state, child)
     }
-    return count
-  }
-
-  private renderItemLine(item: KnowledgeItem, depth: number): string {
-    const indent = '  '.repeat(depth)
-    const sourcesTag = item.sources.length > 0 ? ` [${item.sources.join(', ')}]` : ''
-    return `${indent}- *${item.title}* — ${item.summary}${sourcesTag}\n`
+    return total
   }
 
   private renderSources(sources: SourceSummary[]): string {

@@ -3,7 +3,8 @@ import path from 'node:path'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { FileSystem } from '@/helpers/fs.js'
-import type { GlobalState } from '@/modules/state/state.types.js'
+import { KnowledgeCategory, ROOT_CATEGORIES } from '@/modules/adapters/adapter.types.js'
+import type { GlobalState, GraphNode, GraphTree } from '@/modules/state/state.types.js'
 import { CURRENT_STATE_VERSION, DEFAULT_REBALANCE_CONFIG } from '@/modules/state/state.types.js'
 
 const STATE_DIR = '.2context'
@@ -50,7 +51,9 @@ export class StateService {
   }
 
   /**
-   * Load the persisted global state, or null if none exists.
+   * Load the persisted global state, or null if none exists or it is from an
+   * incompatible older version. Older states (without `graphTree`) are
+   * treated as missing — the user is expected to re-ingest with `--force`.
    */
   public async loadState(): Promise<GlobalState | null> {
     const statePath = path.join(this.getStateDir(), STATE_FILE)
@@ -58,19 +61,27 @@ export class StateService {
     const raw = await this.fs.readFileOrNull(statePath)
     if (!raw) return null
 
+    let parsed: GlobalState
     try {
-      const parsed = JSON.parse(raw) as GlobalState
-      // Forward-migrate missing config with defaults in case the user edited the file.
-      parsed.config = { ...DEFAULT_REBALANCE_CONFIG, ...(parsed.config || {}) }
-      if (!parsed.counters) {
-        parsed.counters = { totalMaterialProcessed: 0, totalGroupsProcessed: 0, rebalanceCount: 0 }
-      }
-      if (!parsed.items) parsed.items = []
-      return parsed
+      parsed = JSON.parse(raw) as GlobalState
     } catch (error) {
       this.logger.warn(`Failed to parse state file: ${error}`)
       return null
     }
+
+    if (!parsed.graphTree || !parsed.graphTree.nodes || !parsed.graphTree.rootIds) {
+      this.logger.warn(
+        `State file is from an older version (no graphTree). Treating as uninitialized — re-run with "ingest --force" to rebuild.`,
+      )
+      return null
+    }
+
+    parsed.config = { ...DEFAULT_REBALANCE_CONFIG, ...(parsed.config || {}) }
+    if (!parsed.counters) {
+      parsed.counters = { totalMaterialProcessed: 0, totalGroupsProcessed: 0, rebalanceCount: 0 }
+    }
+    if (!parsed.items) parsed.items = []
+    return parsed
   }
 
   /**
@@ -89,7 +100,9 @@ export class StateService {
   }
 
   /**
-   * Create a blank initial state for a first run.
+   * Create a blank initial state for a first run, with the four root category
+   * branches pre-seeded so the index can route the very first item without
+   * any bootstrap step.
    */
   public createInitialState(): GlobalState {
     const now = new Date().toISOString()
@@ -100,6 +113,7 @@ export class StateService {
       projectSummary: '',
       config: { ...DEFAULT_REBALANCE_CONFIG },
       items: [],
+      graphTree: this.buildInitialGraphTree(),
       counters: { totalMaterialProcessed: 0, totalGroupsProcessed: 0, rebalanceCount: 0 },
     }
   }
@@ -112,8 +126,7 @@ export class StateService {
     await this.fs.ensureDir(this.getStateDir())
     await this.fs.ensureDir(this.getSourcesDir())
     await this.fs.ensureDir(this.getGraphDir())
-    const categories = ['architecture', 'convention', 'decision', 'pattern']
-    for (const category of categories) {
+    for (const category of ROOT_CATEGORIES) {
       await this.fs.ensureDir(path.join(this.getGraphDir(), category))
     }
 
@@ -127,5 +140,33 @@ export class StateService {
   public async isInitialized(): Promise<boolean> {
     const statePath = path.join(this.getStateDir(), STATE_FILE)
     return this.fs.pathExists(statePath)
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  private buildInitialGraphTree(): GraphTree {
+    const rootIds: Record<string, string> = {}
+    const nodes: Record<string, GraphNode> = {}
+
+    for (const category of ROOT_CATEGORIES) {
+      const id = String(category)
+      rootIds[id] = id
+      nodes[id] = {
+        id,
+        kind: 'branch',
+        segment: id,
+        path: path.posix.join(STATE_DIR, GRAPH_SUBDIR, id),
+        parentId: null,
+        summary: '',
+        keywords: [],
+        summaryUpdatedAt: '',
+        childIds: [],
+      }
+    }
+
+    // Touch the enum import so the bundler doesn't strip the value (used at runtime in ROOT_CATEGORIES).
+    void KnowledgeCategory
+
+    return { rootIds, nodes }
   }
 }

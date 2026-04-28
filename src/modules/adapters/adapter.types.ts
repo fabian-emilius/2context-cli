@@ -47,8 +47,8 @@ export type KnowledgeScope =
 
 /**
  * A single piece of extracted knowledge. Produced by an adapter's ingest
- * pipeline with every field populated; the writer and rebalance services
- * may later update `subcategoryPath`, `writtenPath`, and `lastValidated`.
+ * pipeline with every field populated; the writer and index services may
+ * later update `subcategoryPath`, `writtenPath`, `leafId`, and `lastValidated`.
  */
 export interface KnowledgeItem {
   /** Stable slug derived from the title. Used as filename and dedup key. */
@@ -65,8 +65,13 @@ export interface KnowledgeItem {
   sources: string[]
   /** Files referenced by this item; used for validation and display. */
   relatedFiles: string[]
-  /** Current location on disk (relative to repo root). Rebalance may mutate. */
+  /** Current location on disk (relative to repo root). Index/rebalance may mutate. */
   writtenPath: string
+  /**
+   * For general-scope items: id of the leaf node hosting this item in the index tree.
+   * Empty string before the index has placed the item. Co-located items leave this empty.
+   */
+  leafId: string
   firstSeen: string
   lastValidated: string
   staleCount: number

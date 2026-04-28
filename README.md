@@ -16,8 +16,8 @@ Coding agents are stateless: they re-derive your conventions every session. 2con
 
 Output is plain files committed alongside your code:
 
-* **`.2context/KNOWLEDGE_GRAPH.md`** is the index. The agent is instructed to read this first.
-* **`.2context/graph/{category}/`** holds the central items, organized into four categories: `architecture`, `convention`, `decision`, `pattern`.
+* **`.2context/KNOWLEDGE_GRAPH.md`** is the entry point. The agent is instructed to read this first.
+* **`.2context/graph/{category}/`** holds the central knowledge as a self-balancing tree, organized into four categories: `architecture`, `convention`, `decision`, `pattern`. Each folder contains an `_index.md` summarizing its children, plus leaf `.md` files that group related findings together.
 * **`KNOWLEDGE.md`** files sit next to the source folders they describe (e.g. `src/auth/KNOWLEDGE.md`).
 * A `## Knowledge Context` section is added to `CLAUDE.md` or `AGENTS.md` pointing the agent at the index.
 
@@ -45,12 +45,12 @@ After the first run, use `2context ingest` to pick up new commits incrementally.
 
 ## How it works
 
-Each `ingest` run goes through five phases:
+Each `ingest` run goes through these phases:
 
 1. **Fetch.** Read commits since the last cursor (or all commits with `--force`). Skip merges, dependency bumps, and formatting-only diffs.
 2. **Cluster and extract.** An LLM groups related commits into feature units, then reads the diffs and produces `KnowledgeItem`s with category, summary, content, and source provenance (commit SHAs, files touched).
-3. **Write.** Items go to co-located `KNOWLEDGE.md` files (when scoped to a folder) and to `.2context/graph/{category}[/{subcategory}]/{slug}.md` (when general).
-4. **Rebalance.** Overfull category folders (>15 items) get split into subcategories via LLM clustering. Underfull folders (<3 items) get merged back up. Recursive.
+3. **Insert into the index.** Each general-scope item is routed top-down through the central tree by an LLM at every branch — using each child's summary to pick the next hop, or to create a new sibling when nothing fits. The item lands in a leaf `.md` file alongside other related findings. Co-located items go straight to the matching source-tree `KNOWLEDGE.md`.
+4. **Self-balance on insert.** After each insertion, the index walks back up to the root: leaves that exceed the per-leaf threshold (item count or rendered byte size) are split into topical sibling leaves; branches that exceed the per-branch child cap are split into intermediate sub-branches. Every touched node has its summary regenerated so subsequent routing stays accurate. The standalone `2context rebalance` command runs the same checks across the whole tree on demand.
 5. **Update agent file.** The `## Knowledge Context` section in `CLAUDE.md` / `AGENTS.md` is regenerated, telling the agent to read `.2context/KNOWLEDGE_GRAPH.md` before starting any task.
 
 State for each adapter lives in `.2context/sources/{adapter-id}/state.json` so the next run only processes what is new.
@@ -95,10 +95,10 @@ Check stored items against their sources. For `git-commits`, this verifies refer
 
 ### `2context rebalance`
 
-Reorganize the graph: split overfull category folders into subcategories, merge underfull ones. This already runs automatically after each ingest; the standalone command is for manual reorganization.
+Sweep the entire central tree: re-cluster overfull leaves and branches, regenerate every node's summary. The index already self-balances on every insert during `ingest`; this command is for manual reorganization, e.g. after threshold changes.
 
 ```
---dry-run    Show proposed moves without changing anything
+--dry-run    Show proposed splits/merges without changing anything
 -v, --verbose
 ```
 
@@ -109,24 +109,32 @@ Reorganize the graph: split overfull category folders into subcategories, merge 
 ```
 your-repo/
 ├── .2context/
-│   ├── KNOWLEDGE_GRAPH.md           # Index. Agent reads this first.
+│   ├── KNOWLEDGE_GRAPH.md             # Entry point. Agent reads this first.
 │   ├── graph/
 │   │   ├── architecture/
-│   │   │   └── api-design/          # Subcategory created by rebalance
-│   │   │       └── rest-versioning.md
+│   │   │   ├── _index.md              # Folder summary + child outline
+│   │   │   ├── api-design/            # Sub-branch created on insert when siblings cluster
+│   │   │   │   ├── _index.md
+│   │   │   │   └── versioning.md      # Leaf — multiple findings grouped by topic
+│   │   │   └── caching.md             # Leaf — sits directly under architecture/
 │   │   ├── convention/
+│   │   │   └── _index.md
 │   │   ├── decision/
+│   │   │   └── _index.md
 │   │   └── pattern/
+│   │       └── _index.md
 │   └── sources/
-│       └── git-commits/state.json   # Cursor (gitignored)
+│       └── git-commits/state.json     # Cursor (gitignored)
 ├── src/
 │   ├── auth/
-│   │   ├── KNOWLEDGE.md             # Co-located items for this folder
+│   │   ├── KNOWLEDGE.md               # Co-located items for this folder
 │   │   └── jwt.ts
 │   └── db/
 │       └── KNOWLEDGE.md
-└── CLAUDE.md                        # Auto-updated Knowledge Context section
+└── CLAUDE.md                          # Auto-updated Knowledge Context section
 ```
+
+Every `_index.md` and leaf `.md` carries YAML frontmatter (id, summary, keywords, parent, children/items) so a navigating agent can drill down a level at a time using only summaries — no need to read the full graph.
 
 **Commit:** `.2context/KNOWLEDGE_GRAPH.md`, `.2context/graph/`, `src/**/KNOWLEDGE.md`, `CLAUDE.md` / `AGENTS.md`.
 **Don't commit:** `.2context/sources/` (cursor state, already gitignored).
@@ -144,13 +152,13 @@ export OPENAI_API_KEY=sk-...
 export GOOGLE_GENERATIVE_AI_API_KEY=...
 
 # Optional
-export TWOCONTEXT_MODEL=anthropic/claude-opus-4-20250514
+export TWOCONTEXT_MODEL=anthropic/claude-opus-4-7
 export TWOCONTEXT_CI=true                   # plain-text output, no prompts
 ```
 
 | Provider | Default | Other models |
 |----------|---------|--------------|
-| Anthropic | `claude-sonnet-4-20250514` | `claude-haiku-4-5`, `claude-opus-4-20250514` |
+| Anthropic | `claude-sonnet-4-6` | `claude-haiku-4-5`, `claude-opus-4-7` |
 | OpenAI | `gpt-4o` | `gpt-4o-mini`, `o3-mini` |
 | Google | `gemini-2.5-flash` | `gemini-2.5-pro`, `gemini-2.0-flash` |
 

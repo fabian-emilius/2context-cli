@@ -7,9 +7,10 @@ import type { AdapterContext, SourceAdapter } from '@/modules/adapters/adapter.t
 import { AdaptersRegistry } from '@/modules/adapters/adapters.registry.js'
 import { AiService } from '@/modules/ai/ai.service.js'
 import { GitService } from '@/modules/git/git.service.js'
+import type { IndexResult } from '@/modules/index/index.service.js'
+import { IndexService } from '@/modules/index/index.service.js'
 import { ErrorLoggerService } from '@/modules/logging/error-logger.service.js'
 import type { IngestCommandOptions, IngestResult, IngestSummary } from '@/modules/pipeline/pipeline.types.js'
-import { RebalanceService } from '@/modules/rebalance/rebalance.service.js'
 import { StateService } from '@/modules/state/state.service.js'
 import type { GlobalState } from '@/modules/state/state.types.js'
 import { AgentFileUpdater } from '@/modules/writer/agent-file-updater.js'
@@ -25,7 +26,7 @@ export class PipelineService {
     @Inject(StateService) private readonly stateService: StateService,
     @Inject(WriterService) private readonly writer: WriterService,
     @Inject(GraphWriterService) private readonly graphWriter: GraphWriterService,
-    @Inject(RebalanceService) private readonly rebalance: RebalanceService,
+    @Inject(IndexService) private readonly indexService: IndexService,
     @Inject(AiService) private readonly ai: AiService,
     @Inject(GitService) private readonly git: GitService,
     @Inject(ErrorLoggerService) private readonly errorLogger: ErrorLoggerService,
@@ -57,11 +58,11 @@ export class PipelineService {
   /**
    * Run the full ingest pipeline:
    *   for each adapter:
-   *     load adapter state → adapter.ingest → writer.writeNewItems → save adapter state
-   *   rebalance → rebuild KNOWLEDGE_GRAPH.md → update CLAUDE.md → save global state
-   *
-   * Manages per-phase `ui.step(...)` counters and spinners directly so the user
-   * can see exactly which phase is running.
+   *     load adapter state → adapter.ingest → split items by scope:
+   *       co-located → writer.writeCoLocatedItems
+   *       general    → indexService.insertItem (per-item, balanced on every insert)
+   *     → save adapter state
+   *   rebuild KNOWLEDGE_GRAPH.md → update CLAUDE.md → save global state
    */
   public async ingest(ui: TerminalUI, options: IngestCommandOptions): Promise<IngestResult> {
     this.errorLogger.resetRunCounters()
@@ -71,12 +72,10 @@ export class PipelineService {
       // ── Phase 1: Preparing workspace ──────────────────────────────────────
       const adapters = this.selectAdapters(options.source)
 
-      // Build the phase list up-front so step counters are stable.
       const phases: string[] = ['Preparing workspace']
       if (options.force) phases.push('Wiping previous outputs')
       for (const a of adapters) phases.push(`Ingesting ${a.label}`)
       phases.push('Rebuilding knowledge index', 'Saving state')
-      // Rebalance step is inserted conditionally after state is loaded (see below).
 
       let stepIdx = 0
       const totalSteps = () => phases.length
@@ -104,19 +103,11 @@ export class PipelineService {
       activeSpinner.succeed(`Workspace ready (${repoInfo.rootDir}) — ${state.items.length} existing item(s)`)
       activeSpinner = null
 
-      // Decide whether rebalance will run, then insert the phase label so the
-      // user sees the correct total up front.
-      const willRebalance = !options.noRebalance
-      if (willRebalance) {
-        const insertAt = phases.indexOf('Rebuilding knowledge index')
-        phases.splice(insertAt, 0, 'Rebalancing knowledge graph')
-      }
-
       // ── Phase 2 (optional): Wiping previous outputs ────────────────────────
       if (options.force) {
         nextStep('Wiping previous outputs')
         activeSpinner = ui.spinner('Removing existing graph and items...')
-        await this.wipeOutputs(state, repoInfo.rootDir)
+        state = await this.wipeOutputs(state, repoInfo.rootDir)
         activeSpinner.succeed('Previous outputs wiped')
         activeSpinner = null
       }
@@ -132,6 +123,7 @@ export class PipelineService {
       const sourceSummaries: SourceSummary[] = []
       const isIncremental = !options.force && state.items.length > 0
       const affectedFiles = new Set<string>()
+      const totalIndexResult: IndexResult = { inserts: 0, splits: 0, merges: 0, summaries: [] }
 
       // ── Phase 3..M: Ingesting <adapter.label> ──────────────────────────────
       for (const adapter of adapters) {
@@ -145,8 +137,6 @@ export class PipelineService {
           await this.resetAdapterState(adapter, adapterStateDir)
         }
 
-        // The adapter owns its own sub-step spinners via ctx.ui — do not create
-        // a wrapping spinner here, or they'll clobber each other.
         const adapterState = await adapter.loadState()
         const { items, updatedState, counters } = await adapter.ingest(adapterState, ctx, {
           branch: options.branch,
@@ -156,12 +146,28 @@ export class PipelineService {
 
         if (items.length > 0) {
           activeSpinner = ui.spinner(`[${adapter.id}] writing ${items.length} knowledge items...`)
-          await this.writer.writeNewItems(items, repoInfo.rootDir)
-          for (const item of items) {
+
+          // Co-located items go straight to disk; general items get routed through the index.
+          const coLocated = items.filter((i) => i.scope.type !== 'general')
+          const general = items.filter((i) => i.scope.type === 'general')
+
+          await this.writer.writeCoLocatedItems(coLocated, repoInfo.rootDir)
+          for (const item of coLocated) {
+            state.items.push(item)
             affectedFiles.add(item.writtenPath)
           }
-          state.items.push(...items)
-          activeSpinner.succeed(`[${adapter.id}] ${items.length} items written`)
+
+          for (let i = 0; i < general.length; i += 1) {
+            const item = general[i]
+            activeSpinner.update(`[${adapter.id}] indexing ${i + 1}/${general.length} — ${item.title}`)
+            state.items.push(item)
+            await this.indexService.insertItem(state, repoInfo.rootDir, item, totalIndexResult)
+            affectedFiles.add(item.writtenPath)
+          }
+
+          activeSpinner.succeed(
+            `[${adapter.id}] ${coLocated.length} co-located, ${general.length} indexed (${totalIndexResult.splits} split${totalIndexResult.splits === 1 ? '' : 's'} so far)`,
+          )
           activeSpinner = null
         }
 
@@ -180,33 +186,11 @@ export class PipelineService {
         sourceSummaries.push(this.buildSourceSummary(adapter, updatedState, counters.materialProcessed))
       }
 
-      // ── Phase M+1 (optional): Rebalancing ──────────────────────────────────
-      let rebalanceMoves = { moves: 0, splits: 0, merges: 0 }
-      if (willRebalance && state.items.length > 0) {
-        nextStep('Rebalancing knowledge graph')
-        activeSpinner = ui.spinner('Analysing knowledge graph...')
-        const rebalanceSpinner = activeSpinner
-        const rebalanceResult = await this.rebalance.run(state, repoInfo.rootDir, false, (msg) =>
-          rebalanceSpinner.update(msg),
-        )
-        rebalanceMoves = {
-          moves: rebalanceResult.moves,
-          splits: rebalanceResult.splits,
-          merges: rebalanceResult.merges,
-        }
-        const rebalanceSummary =
-          rebalanceResult.moves > 0
-            ? `Rebalance: ${rebalanceResult.moves} moves (${rebalanceResult.splits} split, ${rebalanceResult.merges} merge)`
-            : 'Rebalance: no changes'
-        activeSpinner.succeed(rebalanceSummary)
-        activeSpinner = null
-      } else if (willRebalance) {
-        // Skip the step entirely when there's nothing to rebalance.
-        nextStep('Rebalancing knowledge graph')
-        ui.dim('No items to rebalance — skipped.')
+      if (totalIndexResult.splits + totalIndexResult.merges > 0) {
+        state.counters.rebalanceCount += 1
       }
 
-      // ── Phase M+2: Rebuilding knowledge index ──────────────────────────────
+      // ── Phase M+1: Rebuilding knowledge index ──────────────────────────────
       nextStep('Rebuilding knowledge index')
       activeSpinner = ui.spinner('Rebuilding KNOWLEDGE_GRAPH.md...')
       await this.graphWriter.rebuild(repoInfo.rootDir, this.stateService.getGraphIndexPath(), state, sourceSummaries)
@@ -218,7 +202,7 @@ export class PipelineService {
       activeSpinner.succeed(`Index rebuilt (${state.items.length} items across ${coLocatedCount} co-located files)`)
       activeSpinner = null
 
-      // ── Phase M+3: Saving state ────────────────────────────────────────────
+      // ── Phase M+2: Saving state ────────────────────────────────────────────
       nextStep('Saving state')
       activeSpinner = ui.spinner('Writing .2context/state.json...')
       await this.stateService.saveState(state)
@@ -229,7 +213,11 @@ export class PipelineService {
         adapters: summaries,
         totalItemsProduced: summaries.reduce((acc, s) => acc + s.itemsProduced, 0),
         filesAffected: affectedFiles.size,
-        rebalance: rebalanceMoves,
+        rebalance: {
+          moves: totalIndexResult.inserts,
+          splits: totalIndexResult.splits,
+          merges: totalIndexResult.merges,
+        },
         isIncremental,
         warningsLogged: this.errorLogger.count('warn'),
       }
@@ -252,10 +240,11 @@ export class PipelineService {
 
     const state = await this.stateService.loadState()
     if (!state) {
-      throw new Error('.2context is not initialized. Run "2context init" first.')
+      throw new Error(
+        '.2context is not initialized or is from an incompatible older version. Run "2context init" first.',
+      )
     }
 
-    // Wire adapter state dirs so adapters can call validateItem and read their own state if needed.
     for (const adapter of this.registry.all()) {
       adapter.setStateDir(this.stateService.getAdapterStateDir(adapter.id))
     }
@@ -294,13 +283,13 @@ export class PipelineService {
   }
 
   /**
-   * Remove all extracted content but keep the `.2context` folder scaffold itself.
-   * Called when `ingest --force` is used.
+   * Wipe all extracted content but keep the `.2context` folder scaffold.
+   * Returns a fresh state with the four root branches re-seeded so the next
+   * insert has a tree to route into.
    */
-  private async wipeOutputs(state: GlobalState, repoRoot: string): Promise<void> {
+  private async wipeOutputs(state: GlobalState, repoRoot: string): Promise<GlobalState> {
     const filesystem = new FileSystem(repoRoot)
 
-    // Delete all co-located KNOWLEDGE.md files currently referenced in state.
     const coLocatedHosts = new Set(state.items.filter((i) => i.scope.type !== 'general').map((i) => i.writtenPath))
     for (const hostPath of coLocatedHosts) {
       const abs = filesystem.resolve(hostPath)
@@ -311,7 +300,6 @@ export class PipelineService {
       }
     }
 
-    // Delete the graph directory contents and recreate the category folders.
     const graphDir = this.stateService.getGraphDir()
     try {
       await fs.rm(graphDir, { recursive: true, force: true })
@@ -319,13 +307,12 @@ export class PipelineService {
       // ignore
     }
 
-    // Reset in-memory state
-    state.items = []
-    state.counters.totalMaterialProcessed = 0
-    state.counters.totalGroupsProcessed = 0
-    state.counters.rebalanceCount = 0
-
     await this.stateService.scaffoldDirs()
+
+    // Replace state with a fresh seed so the index tree is consistent with disk.
+    const fresh = this.stateService.createInitialState()
+    fresh.projectSummary = state.projectSummary
+    return fresh
   }
 
   /**
