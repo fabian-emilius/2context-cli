@@ -1,6 +1,6 @@
 {
   "name": "2context",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn your git history into a structured knowledge base for your team and AI coding tools.",
   "type": "module",
   "main": "dist/main.js",
